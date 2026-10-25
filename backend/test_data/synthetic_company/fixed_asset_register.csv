@@ -1,0 +1,5 @@
+Asset Code,Asset Name,Category,Purchase Date,Capitalization Date,Original Cost,Sch II Life (Yrs),Sch II SLM Depn,Sec 32 Block Rate,Sec 32 WDV Depn
+FA-001,CNC 5-Axis Milling Center,PLANT_MACHINERY,2024-04-01,2024-04-01,"30,00,000.00",15,"1,90,000.00",15%,"4,50,000.00"
+FA-002,Industrial 6-Axis Robotic Arm,PLANT_MACHINERY,2024-04-01,2024-04-01,"15,00,000.00",15,"95,000.00",15%,"2,25,000.00"
+FA-003,Enterprise AI & SCADA Servers,IT_COMPUTERS,2024-04-01,2024-04-01,"12,00,000.00",3,"3,80,000.00",40%,"4,80,000.00"
+FA-004,Executive Modular Workstations,FURNITURE,2024-04-01,2024-04-01,"8,00,000.00",10,"76,000.00",10%,"80,000.00"

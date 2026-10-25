@@ -1,0 +1,49 @@
+{
+  "company": {
+    "name": "Vanguard Industrial Automations Private Limited",
+    "cin": "U29100MH2020PTC345678",
+    "pan": "AABCV9876K",
+    "gstin": "27AABCV9876K1Z8",
+    "entity_type": "PVT_LTD",
+    "financial_year": "FY 2024-25"
+  },
+  "trial_balance": {
+    "is_balanced": true,
+    "total_debits": "25000000.00",
+    "total_credits": "25000000.00",
+    "difference": "0.00",
+    "accounts_count": 20
+  },
+  "unbalanced_tb": {
+    "is_balanced": false,
+    "total_debits": "25025000.00",
+    "total_credits": "25000000.00",
+    "difference": "25000.00"
+  },
+  "financial_overview": {
+    "revenue_from_operations": "12000000.00",
+    "total_expenses": "10050000.00",
+    "net_profit": "1950000.00",
+    "gross_ppe": "6500000.00",
+    "cash_and_bank": "1800000.00"
+  },
+  "tax_audit_disallowances": {
+    "section_43bh_msme_overdue_total": "425000.00",
+    "section_43bh_overdue_count": 2,
+    "section_40a3_cash_total": "80000.00",
+    "section_40a3_violations_count": 2
+  },
+  "fixed_assets_dual_depreciation": {
+    "total_gross_block": "6500000.00",
+    "total_sch_ii_slm": "741000.00",
+    "total_sec_32_wdv": "1235000.00",
+    "depreciation_variance": "-494000.00"
+  },
+  "reconciliation_suite": {
+    "bank_recon_items_count": 16,
+    "unpresented_cheques_count": 1,
+    "gst_itc_missing_in_2b_count": 2,
+    "gst_itc_missing_in_2b_taxable": "900000.00",
+    "gst_itc_missing_in_2b_tax": "162000.00"
+  }
+}

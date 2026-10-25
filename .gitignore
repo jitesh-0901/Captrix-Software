@@ -1,0 +1,40 @@
+# Python & Django
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+backend/.venv/
+.venv/
+env/
+venv/
+ENV/
+*.sqlite3
+*.db
+backend/db.sqlite3
+backend/media/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & Secrets
+.env
+*.local

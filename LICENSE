@@ -1,0 +1,19 @@
+PROPRIETARY SOFTWARE LICENSE & INTELLECTUAL PROPERTY NOTICE
+
+Copyright (c) 2026 Captrix AI. All Rights Reserved.
+
+NOTICE: This codebase, algorithms, models, and user interfaces of "Captrix AI" are proprietary and confidential property of the author/organization. 
+
+1. OWNERSHIP & PROPRIETARY RIGHTS
+The software, including its source code, architectural structure, 14-stage automated audit pipeline, accounting reconciliation algorithms, verification rules, presentation interfaces, and documentation, is the exclusive intellectual property of the copyright holder.
+
+2. COMMERCIAL RIGHTS & NON-INFRINGEMENT
+All third-party libraries and frameworks incorporated in this software (including React, Django, Django REST Framework, Tailwind CSS, OpenPyXL, Pandas, PyPDF, and Lucide Icons) are licensed under permissive open-source licenses (MIT, BSD, Apache 2.0, and ISC). None of the incorporated dependencies enforce copyleft or viral licensing (such as GNU GPL or AGPL).
+
+3. REGULATORY AND TRADEMARK COMPLIANCE
+- Standards on Auditing (SAs) issued by the Institute of Chartered Accountants of India (ICAI), the Companies Act, 2013, the Income-tax Act, 1961, and the Central Goods and Services Tax Act, 2017 are public statutes and statutory regulations referenced solely for legal compliance and reporting standards.
+- References to third-party file formats or brand names (such as "TallyPrime", "Zoho Books", "SBI", "HDFC Bank", "GSTN") are for interoperability, file parsing, and nominative fair use purposes only under Section 30(2)(d) of the Trade Marks Act, 1999 (India). All respective trademarks remain the exclusive property of their respective trademark holders.
+- Captrix AI does not use, reproduce, or claim ownership over official government seals, statutory ICAI emblems, or proprietary marks of third-party accounting software vendors.
+
+4. RESTRICTIONS
+Unauthorized copying, reverse engineering, decompiling, distribution, sublicensing, or publication of this proprietary source code without explicit written permission from the copyright owner is strictly prohibited.
