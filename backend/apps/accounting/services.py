@@ -222,13 +222,21 @@ def classify_schedule_iii(account_name: str) -> str:
     ]):
         return ScheduleIIIGroup.SHARE_CAPITAL
 
+    if any(k in name for k in ['dividend income', 'dividend received']):
+        return ScheduleIIIGroup.OTHER_INCOME
+
+    if any(k in name for k in ['dividend payable', 'unpaid dividend', 'unclaimed dividend']):
+        return ScheduleIIIGroup.OTHER_CURRENT_LIABILITIES
+
     if any(k in name for k in [
         'reserve', 'surplus', 'retained earning', 'retained earnings', 'profit and loss', 'p&l',
         'general reserve', 'securities premium', 'share premium', 'statutory reserve',
         'special reserve', 'debenture redemption reserve', 'revaluation reserve',
         'drawings', "proprietor's drawings", 'proprietor drawings', 'partner drawings',
-        'partners drawings', 'dividend', 'interim dividend', 'proposed dividend'
-    ]):
+        'partners drawings', 'interim dividend', 'proposed dividend', 'dividend paid'
+    ]) or (
+        'dividend' in words and not any(inc in words for inc in ['income', 'received', 'yield', 'payable', 'unpaid', 'unclaimed'])
+    ):
         return ScheduleIIIGroup.RESERVES_SURPLUS
 
     # -------------------------------------------------------------------------
@@ -341,6 +349,8 @@ def classify_schedule_iii(account_name: str) -> str:
     # STEP 7: REVENUE FROM OPERATIONS & OTHER INCOME
     # -------------------------------------------------------------------------
     if any(k in name for k in [
+        # Statutory & Operating Revenue
+        'revenue from operations', 'revenue from operation', 'operating revenue', 'operational revenue', 'operating income',
         # IT / Tech / Software Revenues
         'software development', 'software export', 'export of services', 'export software',
         'saas revenue', 'subscription revenue', 'api revenue', 'api usage', 'platform fee',
@@ -352,6 +362,9 @@ def classify_schedule_iii(account_name: str) -> str:
         'manufacturing sales', 'service income', 'professional fee received', 'job work income',
         'job work receipts', 'gross receipts', 'contract receipts', 'brokerage received', 'commission income'
     ]) and not any(exp in words for exp in ['purchase', 'expense', 'expenses', 'cost', 'payable', 'paid']):
+        return ScheduleIIIGroup.REVENUE_OPERATIONS
+
+    if 'revenue' in words and not any(exp in words for exp in ['purchase', 'expense', 'expenses', 'cost', 'payable', 'paid', 'unearned', 'deferred', 'advance']):
         return ScheduleIIIGroup.REVENUE_OPERATIONS
 
     # When revenue/income appears in consulting context
@@ -478,49 +491,55 @@ def extract_account_name(row_dict: dict) -> str:
     Deterministically extracts the ledger / account title from a row dict.
     Strictly avoids picking account codes, IDs, types, groups, or numbers as the name.
     """
-    # Fast path for direct dictionary keys
+    CATEGORY_LABELS = {
+        'asset', 'assets', 'liability', 'liabilities', 'equity', 'income', 'expense',
+        'expenses', 'revenue', 'revenues', 'total', 'totals', 'grand total', 'subtotal'
+    }
+
+    # 1. Primary explicit account name keys
     for k in (
-        'Particulars', 'particulars', 'Account Name', 'account_name', 'account name',
-        'Ledger Name', 'ledger_name', 'ledger name', 'Ledger', 'ledger',
-        'Head of Account', 'head of account', 'Head', 'head', 'Particular', 'particular',
-        'Party Name', 'party_name', 'party', 'Party', 'A/c Heads', 'a/c heads',
-        'Account Description', 'account_description'
+        'Account Name', 'account_name', 'account name', 'Account_Name',
+        'Ledger Name', 'ledger_name', 'ledger name', 'Ledger_Name',
+        'Head of Account', 'head of account', 'Head_Of_Account',
+        'Party Name', 'party_name', 'party name', 'Party_Name',
+        'Account Description', 'account_description', 'Account_Description'
     ):
         v = row_dict.get(k)
         if v is not None:
             val_str = str(v).strip()
-            if val_str and not val_str.isdigit():
+            if val_str and not val_str.isdigit() and val_str.lower() not in CATEGORY_LABELS:
                 return val_str
 
-    PRIORITY_KEYS = [
-        'account_name', 'account name', 'particulars', 'particular', 'ledger_name', 'ledger name',
-        'account description', 'account_description', 'ledger', 'head of account', 'head', 'party_name', 'party name', 'party'
-    ]
-    for target in PRIORITY_KEYS:
-        for k, v in row_dict.items():
-            if v and str(v).strip():
-                clean_k = str(k).lower().replace('.', '').replace('_', ' ').strip()
-                if clean_k == target:
-                    val_str = str(v).strip()
-                    if not re.match(r'^\d+$', val_str):
-                        return val_str
+    # 2. Particulars / Ledger generic keys (only if not a pure category label)
+    for k in (
+        'Particulars', 'particulars', 'Particular', 'particular',
+        'Ledger', 'ledger', 'Head', 'head', 'Party', 'party',
+        'A/c Heads', 'a/c heads', 'Description', 'description'
+    ):
+        v = row_dict.get(k)
+        if v is not None:
+            val_str = str(v).strip()
+            if val_str and not val_str.isdigit() and val_str.lower() not in CATEGORY_LABELS:
+                return val_str
 
-    EXCLUDE_SUBSTRINGS = ['code', 'id', 'number', 'no', 'type', 'group', 'ref', 'source']
+    # 3. Fuzzy search for name / ledger keys excluding code/type/group
+    EXCLUDE_SUBSTRINGS = ['code', 'id', 'number', 'no', 'type', 'group', 'ref', 'source', 'date', 'debit', 'credit', 'amount', 'balance']
     for k, v in row_dict.items():
         if v and str(v).strip():
             clean_k = str(k).lower().replace('.', '').replace('_', ' ').strip()
             if any(term in clean_k for term in ['name', 'particular', 'ledger', 'head', 'account', 'party']):
                 if not any(ex in clean_k for ex in EXCLUDE_SUBSTRINGS):
                     val_str = str(v).strip()
-                    if not re.match(r'^\d+$', val_str):
+                    if not re.match(r'^\d+$', val_str) and val_str.lower() not in CATEGORY_LABELS:
                         return val_str
 
+    # 4. Fallback: first non-numeric, non-category cell
     for k, v in row_dict.items():
         if v and str(v).strip():
             clean_k = str(k).lower().replace('.', '').replace('_', ' ').strip()
-            if not any(ex in clean_k for ex in EXCLUDE_SUBSTRINGS + ['debit', 'credit', 'dr', 'cr', 'amount', 'balance', 'date', 'rate', 'total']):
+            if not any(ex in clean_k for ex in EXCLUDE_SUBSTRINGS):
                 val_str = str(v).strip()
-                if not re.match(r'^-?\d+(\.\d+)?$', val_str):
+                if not re.match(r'^-?\d+(\.\d+)?$', val_str) and val_str.lower() not in CATEGORY_LABELS:
                     return val_str
 
     return ""
@@ -888,13 +907,9 @@ class TrialBalanceService:
                 else:
                     groups[grp] += (cr - dr)
 
-        # Absorb any unclassified accounts into other expenses/income so TB balance is preserved
+        # Track unclassified accounts without artificial balancing plugs
         unclass = groups[ScheduleIIIGroup.UNCLASSIFIED]
-        if unclass > Decimal('0.00'):
-            groups[ScheduleIIIGroup.OTHER_EXPENSES] += unclass
-        elif unclass < Decimal('0.00'):
-            groups[ScheduleIIIGroup.OTHER_INCOME] += abs(unclass)
-        groups[ScheduleIIIGroup.UNCLASSIFIED] = Decimal('0.00')
+        has_unclassified = abs(unclass) > Decimal('0.00')
 
         # Subledger GAAP Reclassifications for Schedule III presentation:
         # Bank Overdraft (Negative Cash & Bank -> Short-Term Borrowings)
@@ -965,47 +980,47 @@ class TrialBalanceService:
         total_assets = non_current_assets + current_assets
 
         bs_diff = abs(total_equity_and_liabilities - total_assets)
-        is_balanced = bs_diff < Decimal('1.00')
+        is_balanced = (bs_diff < Decimal('1.00')) and not has_unclassified
 
         # 4. Mandatory Statutory Schedule III Analytical Ratios & Operating Cycle Formulas
-        # Handled with complete Division I & II statutory definitions and zero-division safeguards
-        cur_ratio = round(float(current_assets / current_liabilities), 2) if current_liabilities > 0 else 0.0
-        quick_ratio = round(float((current_assets - inventories) / current_liabilities), 2) if current_liabilities > 0 else 0.0
-        cash_ratio = round(float(cash_eq / current_liabilities), 2) if current_liabilities > 0 else 0.0
+        # Handled with complete Division I & II statutory definitions, explicit None for 0-denominators / negative equity
+        cur_ratio = round(float(current_assets / current_liabilities), 2) if current_liabilities > 0 else None
+        quick_ratio = round(float((current_assets - inventories) / current_liabilities), 2) if current_liabilities > 0 else None
+        cash_ratio = round(float(cash_eq / current_liabilities), 2) if current_liabilities > 0 else None
         
         total_debt = lt_borrowings + st_borrowings
-        debt_equity = round(float(total_debt / shareholders_funds), 2) if shareholders_funds > 0 else (0.0 if total_debt == 0 else 999.0)
+        debt_equity = round(float(total_debt / shareholders_funds), 2) if shareholders_funds > 0 else None
         
         debt_service_due = fin_cost + st_borrowings
-        dscr = round(float((pat + depn + fin_cost) / debt_service_due), 2) if debt_service_due > 0 else (999.0 if (pat + depn) > 0 else 0.0)
+        dscr = round(float((pat + depn + fin_cost) / debt_service_due), 2) if debt_service_due > 0 else None
         
-        roe = round(float(pat / shareholders_funds * 100), 2) if shareholders_funds > 0 else 0.0
-        inv_turnover = round(float(c_mat / inventories), 2) if (inventories > 0 and c_mat > 0) else 0.0
-        debtors_turnover = round(float(rev_ops / trade_rec), 2) if (trade_rec > 0 and rev_ops > 0) else 0.0
+        roe = round(float(pat / shareholders_funds * 100), 2) if shareholders_funds > 0 else None
+        inv_turnover = round(float(c_mat / inventories), 2) if (inventories > 0 and c_mat > 0) else None
+        debtors_turnover = round(float(rev_ops / trade_rec), 2) if (trade_rec > 0 and rev_ops > 0) else None
         
         net_purchases_and_expenses = c_mat + oth_exp
-        creditors_turnover = round(float(net_purchases_and_expenses / trade_payables), 2) if (trade_payables > 0 and net_purchases_and_expenses > 0) else 0.0
+        creditors_turnover = round(float(net_purchases_and_expenses / trade_payables), 2) if (trade_payables > 0 and net_purchases_and_expenses > 0) else None
         
         working_capital = current_assets - current_liabilities
-        working_cap_turnover = round(float(rev_ops / working_capital), 2) if (working_capital > 0 and rev_ops > 0) else 0.0
+        working_cap_turnover = round(float(rev_ops / working_capital), 2) if (working_capital > 0 and rev_ops > 0) else None
         
-        npm = round(float(pat / rev_ops * 100), 2) if rev_ops > 0 else 0.0
+        npm = round(float(pat / rev_ops * 100), 2) if rev_ops > 0 else None
         
         ebit = pbt + fin_cost
         capital_employed = shareholders_funds + lt_borrowings
-        roce = round(float(ebit / capital_employed * 100), 2) if capital_employed > 0 else 0.0
+        roce = round(float(ebit / capital_employed * 100), 2) if capital_employed > 0 else None
         
-        roi = round(float(oth_inc / nc_invest * 100), 2) if nc_invest > 0 else 0.0
+        roi = round(float(oth_inc / nc_invest * 100), 2) if nc_invest > 0 else None
         
         ebitda = pbt + fin_cost + depn
-        op_margin = round(float(ebitda / rev_ops * 100), 2) if rev_ops > 0 else 0.0
-        gp_margin = round(float((rev_ops - c_mat) / rev_ops * 100), 2) if rev_ops > 0 else 0.0
-        icr = round(float(ebit / fin_cost), 2) if fin_cost > 0 else (999.0 if ebit > 0 else 0.0)
+        op_margin = round(float(ebitda / rev_ops * 100), 2) if rev_ops > 0 else None
+        gp_margin = round(float((rev_ops - c_mat) / rev_ops * 100), 2) if rev_ops > 0 else None
+        icr = round(float(ebit / fin_cost), 2) if fin_cost > 0 else None
         
-        debtors_days = round(float((trade_rec / rev_ops) * 365), 1) if rev_ops > 0 else 0.0
-        creditors_days = round(float((trade_payables / net_purchases_and_expenses) * 365), 1) if net_purchases_and_expenses > 0 else 0.0
-        inventory_days = round(float((inventories / c_mat) * 365), 1) if c_mat > 0 else 0.0
-        operating_cycle_days = round(inventory_days + debtors_days - creditors_days, 1)
+        debtors_days = round(float((trade_rec / rev_ops) * 365), 1) if rev_ops > 0 else None
+        creditors_days = round(float((trade_payables / net_purchases_and_expenses) * 365), 1) if net_purchases_and_expenses > 0 else None
+        inventory_days = round(float((inventories / c_mat) * 365), 1) if c_mat > 0 else None
+        operating_cycle_days = round((inventory_days or 0) + (debtors_days or 0) - (creditors_days or 0), 1) if (inventory_days is not None or debtors_days is not None or creditors_days is not None) else None
 
         return {
             'balance_sheet': {

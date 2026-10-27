@@ -16,6 +16,13 @@ def test_full_pipeline_with_pdf_documents():
     tb_pdf_path = os.path.join(os.path.dirname(__file__), '..', 'test_fixtures', 'sample_trial_balance.pdf')
     bank_pdf_path = os.path.join(os.path.dirname(__file__), '..', 'test_fixtures', 'sample_bank_statement.pdf')
 
+    if not os.path.exists(tb_pdf_path):
+        from tests.generate_test_pdf import create_trial_balance_pdf
+        create_trial_balance_pdf(tb_pdf_path)
+    if not os.path.exists(bank_pdf_path):
+        from tests.generate_test_pdf import create_bank_statement_pdf
+        create_bank_statement_pdf(bank_pdf_path)
+
     with open(tb_pdf_path, 'rb') as f_tb, open(bank_pdf_path, 'rb') as f_bank:
         tb_upload = SimpleUploadedFile("Apex_Trial_Balance_FY24_25.pdf", f_tb.read(), content_type="application/pdf")
         bank_upload = SimpleUploadedFile("HDFC_Bank_Statement_FY24_25.pdf", f_bank.read(), content_type="application/pdf")

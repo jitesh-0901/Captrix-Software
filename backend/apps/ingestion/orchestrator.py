@@ -1058,9 +1058,17 @@ class AutomationOrchestratorService:
                     gdata = r.normalized_data or r.raw_data
                     acc_code = str(gdata.get('Account_Code', gdata.get('Account Code', ''))).strip()
                     acc_name = str(gdata.get('Account_Name', gdata.get('Account Name', ''))).lower()
-                    src_type = str(gdata.get('Source_Type', gdata.get('Source Type', ''))).lower()
+                    src_type = str(gdata.get('Source_Type', gdata.get('Source Type', gdata.get('Account Type', '')))).lower().strip()
 
-                    is_bank_acc = (acc_code == '100100' or 'main bank' in acc_name or ('bank' in acc_name and not acc_code.startswith(('2', '3', '4', '5'))))
+                    is_bank_acc = (
+                        acc_code == '100100'
+                        or 'main bank' in acc_name
+                        or ('bank' in acc_name and not acc_code.startswith(('2', '3', '4', '5')))
+                        or src_type == 'bank'
+                        or 'bank' in src_type
+                        or 'contra' in src_type
+                        or 'cheque' in src_type
+                    )
                     if is_bank_acc:
                         dr_amt = parse_indian_amount(gdata.get('Debit_INR') or gdata.get('Debit') or gdata.get('Debit (INR)')) or Decimal('0.00')
                         cr_amt = parse_indian_amount(gdata.get('Credit_INR') or gdata.get('Credit') or gdata.get('Credit (INR)')) or Decimal('0.00')
@@ -1069,6 +1077,7 @@ class AutomationOrchestratorService:
                         if amt > Decimal('0.00'):
                             b_ref = (
                                 gdata.get('Document_Ref') or gdata.get('Document Ref') or
+                                gdata.get('Chq / Ref No') or gdata.get('Ref No') or
                                 gdata.get('Voucher_No') or gdata.get('Voucher No') or f"GL-{idx}"
                             )
                             book_items.append({

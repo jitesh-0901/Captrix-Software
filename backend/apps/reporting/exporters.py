@@ -16,6 +16,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from apps.companies.models import Engagement
+from apps.ingestion.parsers import parse_indian_amount
 from .report_builder import ConsolidatedAuditReportBuilder, DocumentUploadReportBuilder
 
 _FONTS_REGISTERED = False
@@ -465,6 +466,21 @@ class ReportExporterService:
         nca = bs_assets.get('non_current_assets') or {}
         ca = bs_assets.get('current_assets') or {}
 
+        # Exact arithmetic computation for Current Liabilities components and subtotal
+        msme_val = parse_indian_amount(sec_g.get('tb_msme_trade_payables', sec_g.get('msme_total_outstanding', '0.00'))) or Decimal('0.00')
+        tot_tp_cl = parse_indian_amount(cl.get('trade_payables', sec_c.get('trade_payables', '0.00'))) or Decimal('0.00')
+        if tot_tp_cl > Decimal('0.00') and msme_val <= tot_tp_cl:
+            other_tp_val = tot_tp_cl - msme_val
+        else:
+            other_tp_val = parse_indian_amount(sec_g.get('tb_other_trade_payables', cl.get('trade_payables', '0.00'))) or Decimal('0.00')
+            if tot_tp_cl == Decimal('0.00'):
+                tot_tp_cl = msme_val + other_tp_val
+
+        st_borrow_val = parse_indian_amount(cl.get('short_term_borrowings', '0.00')) or Decimal('0.00')
+        oth_cur_val = parse_indian_amount(cl.get('other_current_liabilities', '0.00')) or Decimal('0.00')
+        st_prov_val = parse_indian_amount(cl.get('short_term_provisions', '0.00')) or Decimal('0.00')
+        cl_computed_total = st_borrow_val + tot_tp_cl + oth_cur_val + st_prov_val
+
         elements.append(Paragraph(f"<b>2. Balance Sheet as at 31st March {end_cal_year}</b>", h2_style))
         elements.append(Paragraph(
             f"<b>{rep_data['company_name']}</b> &bull; CIN: {rep_data['section_a']['cin']}<br/>"
@@ -496,13 +512,13 @@ class ReportExporterService:
             [p_cell("Sub-total: Non-Current Liabilities", td_bold_indent_style), p_cell(""), p_cell(fmt_curr(ncl.get('total', '0.00'), force_zero=True), td_right_bold_style), p_cell("—", td_right_style)],
 
             [p_cell("(4) Current Liabilities", td_bold_style), p_cell(""), p_cell("", td_right_style), p_cell("", td_right_style)],
-            [p_cell("(a) Short-term borrowings", td_indent_style), p_cell("9", td_center_style), p_cell(fmt_curr(cl.get('short_term_borrowings', '0.00'), force_zero=True), td_right_style), p_cell("—", td_right_style)],
+            [p_cell("(a) Short-term borrowings", td_indent_style), p_cell("9", td_center_style), p_cell(fmt_curr(str(st_borrow_val), force_zero=True), td_right_style), p_cell("—", td_right_style)],
             [p_cell("(b) Trade payables:", td_indent_style), p_cell("10", td_center_style), p_cell("", td_right_style), p_cell("", td_right_style)],
-            [p_cell("(A) Total outstanding dues of micro & small enterprises (MSME)", td_indent2_style), p_cell("10A", td_center_style), p_cell(fmt_curr(sec_g.get('tb_msme_trade_payables', sec_g.get('msme_total_outstanding', sec_g.get('msme_overdue_section_43bh_total', '0.00'))), force_zero=True), td_right_style), p_cell("—", td_right_style)],
-            [p_cell("(B) Total outstanding dues of creditors other than micro & small", td_indent2_style), p_cell("10B", td_center_style), p_cell(fmt_curr(sec_g.get('tb_other_trade_payables', cl.get('trade_payables', sec_c.get('trade_payables', '0.00')))), td_right_style), p_cell("—", td_right_style)],
-            [p_cell("(c) Other current liabilities", td_indent_style), p_cell("11", td_center_style), p_cell(fmt_curr(cl.get('other_current_liabilities', '0.00'), force_zero=True), td_right_style), p_cell("—", td_right_style)],
-            [p_cell("(d) Short-term provisions", td_indent_style), p_cell("12", td_center_style), p_cell(fmt_curr(cl.get('short_term_provisions', '0.00'), force_zero=True), td_right_style), p_cell("—", td_right_style)],
-            [p_cell("Sub-total: Current Liabilities", td_bold_indent_style), p_cell(""), p_cell(fmt_curr(cl.get('total', sec_c.get('trade_payables', '0.00'))), td_right_bold_style), p_cell("—", td_right_style)],
+            [p_cell("(A) Total outstanding dues of micro & small enterprises (MSME)", td_indent2_style), p_cell("10A", td_center_style), p_cell(fmt_curr(str(msme_val), force_zero=True), td_right_style), p_cell("—", td_right_style)],
+            [p_cell("(B) Total outstanding dues of creditors other than micro & small", td_indent2_style), p_cell("10B", td_center_style), p_cell(fmt_curr(str(other_tp_val), force_zero=True), td_right_style), p_cell("—", td_right_style)],
+            [p_cell("(c) Other current liabilities", td_indent_style), p_cell("11", td_center_style), p_cell(fmt_curr(str(oth_cur_val), force_zero=True), td_right_style), p_cell("—", td_right_style)],
+            [p_cell("(d) Short-term provisions", td_indent_style), p_cell("12", td_center_style), p_cell(fmt_curr(str(st_prov_val), force_zero=True), td_right_style), p_cell("—", td_right_style)],
+            [p_cell("Sub-total: Current Liabilities", td_bold_indent_style), p_cell(""), p_cell(fmt_curr(str(cl_computed_total)), td_right_bold_style), p_cell("—", td_right_style)],
 
             [p_cell("<b>TOTAL EQUITY AND LIABILITIES</b>", td_bold_style), p_cell(""),
              p_cell(fmt_curr(bs_data.get('total_equity_and_liabilities', sec_c.get('total_equity_and_liabilities', sec_c.get('total_assets')))), td_right_bold_style),
@@ -935,13 +951,31 @@ class ReportExporterService:
         elements.append(Paragraph("<b>5A. Tax Audit Form 3CD Clauses (Section 44AB)</b>", h3_style))
         form3cd_db = {c.clause_number: c for c in clauses_qs.filter(form_type='FORM_3CD')}
 
+        has_daybook = engagement.documents.filter(document_type__in=['DAYBOOK', 'CASH_BOOK']).exists()
+        c21d_status = "CLEARED" if has_daybook else "REVIEW REQUIRED"
+        c21d_sub = "(Nil Violations)" if has_daybook else "(Evidence Pending / Daybook Not Uploaded)"
+        c21d_ev = (
+            "Daybook cash vouchers examined against Rule 6DD limits; zero transactions exceeding ₹10,000 threshold (Nil Violations)."
+            if has_daybook else
+            "Daybook cash vouchers not uploaded; statutory verification against Section 40A(3) limits pending submission of complete primary cash vouchers."
+        )
+
+        has_subledger = (
+            engagement.documents.filter(document_type='SUBLEDGER_AGING').exists()
+            or ('msme_records' in sec_g and len(sec_g.get('msme_records', [])) > 0)
+            or ('payables_count' in sec_g and int(sec_g.get('payables_count', 0)) > 0)
+        )
+        c22_status = "REPORTED" if has_subledger else "REVIEW REQUIRED"
+        c22_sub = "(Schedule Annexed)" if has_subledger else "(Evidence Pending / Subledger Not Uploaded)"
+        c22_ev = (
+            "Scrutiny of trade payables aging schedule for outstanding dues to Micro and Small Enterprises exceeding statutory 45/15 days."
+            if has_subledger else
+            "Subledger vendor aging schedule not uploaded; verification of Section 43B(h) compliance pending vendor registration status data."
+        )
+
         f3cd_clauses_data = [
-            ("Form 3CD Clause 21(d)", "Section 40A(3) Cash Scrutiny",
-             "Daybook cash vouchers examined against Rule 6DD limits; zero transactions exceeding ₹10,000 threshold (Nil Violations).",
-             "CLEARED", "(Nil Violations)"),
-            ("Form 3CD Clause 22", "MSMED Act Section 43B(h)",
-             "Scrutiny of trade payables aging schedule for outstanding dues to Micro and Small Enterprises exceeding statutory 45/15 days.",
-             "REPORTED", "(Schedule Annexed)"),
+            ("Form 3CD Clause 21(d)", "Section 40A(3) Cash Scrutiny", c21d_ev, c21d_status, c21d_sub),
+            ("Form 3CD Clause 22", "MSMED Act Section 43B(h)", c22_ev, c22_status, c22_sub),
             ("Form 3CD Clause 26", "Section 43B Statutory Liabilities",
              "Verification of pre-existing liability payments and timely deposit of PF, ESI, GST, and Bonus on or before due date of filing ITR.",
              "REVIEW REQUIRED", "(Evidence Pending)"),

@@ -6,6 +6,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from dateutil import parser as date_parser
+from typing import Any
 import pandas as pd
 import openpyxl
 
@@ -210,20 +211,40 @@ def normalize_financial_header_name(header: str) -> str:
     h_lower = h_clean.lower().replace('.', '').replace('_', ' ').strip()
     if not h_clean:
         return "Column"
+    
+    # 1. Composite Account Identifiers (Must precede generic 'account')
+    if any(k in h_lower for k in ['account code', 'ledger code', 'gl code', 'acc code', 'a/c code']) or h_lower in ['code', 'acc no', 'account no', 'account number']:
+        return 'Account Code'
+    if any(k in h_lower for k in ['account type', 'acc type', 'ledger type', 'head type', 'account classification', 'group type', 'source type', 'src type']):
+        return 'Account Type'
+
+    # 2. Dates
     if 'txn' in h_lower and 'date' in h_lower:
         return 'Txn Date'
     if 'value' in h_lower and 'date' in h_lower:
         return 'Value Date'
+    if 'posting' in h_lower and 'date' in h_lower:
+        return 'Posting Date'
+    if 'due' in h_lower and 'date' in h_lower:
+        return 'Due Date'
     if 'date' in h_lower and len(h_clean) < 18:
         return 'Date'
-    if any(k in h_lower for k in ['chq', 'cheque', 'ref', 'utr', 'instrument', 'vch no', 'voucher no', 'voucher']):
+
+    # 3. References and Vouchers
+    if any(k in h_lower for k in ['chq', 'cheque', 'ref', 'utr', 'instrument', 'vch no', 'voucher no', 'voucher', 'doc ref', 'document ref']):
         return 'Chq / Ref No'
-    if any(k in h_lower for k in ['narration', 'description']):
+    if any(k in h_lower for k in ['narration', 'description', 'remarks']):
         return 'Description'
-    if any(k in h_lower for k in ['account name', 'particulars', 'ledger name', 'account description', 'head of account', 'ledger', 'head', 'account', 'party name', 'party']):
+
+    # 4. Account Name / Particulars (Specific phrases first, exact word match for generic words)
+    if any(k in h_lower for k in ['account name', 'particulars', 'ledger name', 'account description', 'head of account', 'party name']) or h_lower in ['ledger', 'head', 'account', 'a/c', 'acc', 'party', 'particular']:
         return 'Particulars'
+
+    # 5. Amounts and Balances
     if 'withdrawal' in h_lower:
         return 'Withdrawal (Debit)'
+    if 'deposit' in h_lower:
+        return 'Deposit (Credit)'
     if any(k in h_lower for k in ['closing debit', 'closing dr', 'balance debit', 'bal dr']):
         return 'Closing Debit'
     if any(k in h_lower for k in ['closing credit', 'closing cr', 'balance credit', 'bal cr']):
@@ -238,8 +259,8 @@ def normalize_financial_header_name(header: str) -> str:
         return 'Credit (INR)' if 'inr' in h_lower else 'Credit'
     if 'balance' in h_lower or 'net bal' in h_lower or h_lower == 'closing':
         return 'Balance'
-    if any(k in h_lower for k in ['account code', 'code', 'ledger code', 'gl code']):
-        return 'Account Code'
+
+    # 6. Trade and Statutory
     if any(k in h_lower for k in ['invoice no', 'inv no', 'bill no', 'invoice number', 'bill number']):
         return 'Invoice No'
     if any(k in h_lower for k in ['taxable value', 'taxable amount', 'taxable']):
@@ -313,6 +334,20 @@ def score_candidate_financial_header(row: list, next_row: list = None) -> float:
     return score
 
 
+def deduplicate_headers(headers: list[str]) -> list[str]:
+    seen = {}
+    unique = []
+    for h in headers:
+        base = h if h else "Column"
+        if base not in seen:
+            seen[base] = 1
+            unique.append(base)
+        else:
+            seen[base] += 1
+            unique.append(f"{base}_{seen[base]}")
+    return unique
+
+
 def detect_best_header_row_and_stitch(all_rows: list[list[str]], max_search: int = 25) -> tuple[int, list[str]]:
     """
     Finds the True Table Header row using deterministic hard-scoring,
@@ -365,10 +400,10 @@ def detect_best_header_row_and_stitch(all_rows: list[list[str]], max_search: int
                     stitched.append(sub_c)
                 else:
                     stitched.append(top_c)
-            normalized = [normalize_financial_header_name(h) for h in stitched]
+            normalized = deduplicate_headers([normalize_financial_header_name(h) for h in stitched])
             return best_idx + 2, normalized
 
-    normalized = [normalize_financial_header_name(h) for h in base_header]
+    normalized = deduplicate_headers([normalize_financial_header_name(h) for h in base_header])
     return best_idx + 1, normalized
 
 
@@ -425,11 +460,14 @@ def clean_and_flatten_tally_record(row_dict: dict, headers: list[str], doc_type:
                     row_dict[debit_key] = "0.00"
 
         # Filter out Tally parent categories (where both Debit and Credit are 0 or empty)
+        # BUT preserve valid accounts that have an Account Code or explicit identifier
         if debit_key and credit_key:
             deb_amt = parse_indian_amount(row_dict.get(debit_key))
             crd_amt = parse_indian_amount(row_dict.get(credit_key))
             if (deb_amt is None or deb_amt == Decimal('0.00')) and (crd_amt is None or crd_amt == Decimal('0.00')):
-                return row_dict, False
+                has_acc_code = any(bool(row_dict.get(k)) for k in ['Account Code', 'account_code', 'code', 'GL Code', 'A/c Code'])
+                if not has_acc_code:
+                    return row_dict, False
 
     # 2. BANK STATEMENTS: Auto-align Single Amount with Type column
     elif doc_type == 'BANK_STATEMENT':
@@ -493,7 +531,7 @@ def is_noise_or_carryover_row(row_dict, headers):
 
 class DocumentParserService:
     @staticmethod
-    def parse_file(file_path: str, original_filename: str):
+    def parse_file(file_path: Any, original_filename: str):
         ext = os.path.splitext(original_filename)[1].lower()
         if ext in ['.xlsx', '.xls']:
             return DocumentParserService._parse_excel(file_path)
@@ -638,6 +676,19 @@ class DocumentParserService:
         doc_type = 'UNKNOWN'
         summary_metadata = {}
         row_counter = 1
+
+        # STRATEGY 0: Docling OCR Engine (Local Docling OCR Pipeline)
+        docling_result = None
+        try:
+            from .docling_engine import DoclingOCREngine
+            if DoclingOCREngine.is_available():
+                docling_result = DoclingOCREngine.parse_document(file_path, original_filename)
+                if docling_result and len(docling_result.get('records', [])) > 0:
+                    if len(docling_result.get('headers', [])) >= 4 and docling_result.get('doc_type') != 'UNKNOWN':
+                        logger.info(f"Docling OCR successfully parsed '{original_filename}' ({len(docling_result['records'])} records).")
+                        return docling_result
+        except Exception as d_err:
+            logger.warning(f"Docling OCR pre-extraction skipped or encountered error: {d_err}")
 
         try:
             with pdfplumber.open(file_path) as pdf:
@@ -849,6 +900,9 @@ class DocumentParserService:
         if doc_type == 'UNKNOWN' and original_filename:
             doc_type = classify_document_by_name_and_headers(original_filename, headers)
 
+        if not records and docling_result and len(docling_result.get('records', [])) > 0:
+            return docling_result
+
         is_scanned_pdf = len(records) == 0
         if is_scanned_pdf:
             # Fallback to Original Offline OCR Engine for Scanned / Image-based PDFs
@@ -888,6 +942,16 @@ class DocumentParserService:
         Original Offline OCR Engine for Passbooks, Scanned Bills, Cheques, and Receipts.
         Extracts structured financial transactions without external cloud APIs.
         """
+        # Strategy 0: Docling OCR Engine
+        try:
+            from .docling_engine import DoclingOCREngine
+            if DoclingOCREngine.is_available():
+                docling_res = DoclingOCREngine.parse_document(file_path, os.path.basename(file_path))
+                if docling_res and len(docling_res.get('records', [])) > 0:
+                    return docling_res
+        except Exception as d_img_err:
+            logger.warning(f"Docling image OCR fallback to RapidOCR: {d_img_err}")
+
         from PIL import Image
         headers = ['Date', 'Particulars', 'Chq/Ref No', 'Debit', 'Credit', 'Balance']
         doc_type = 'BANK_STATEMENT'

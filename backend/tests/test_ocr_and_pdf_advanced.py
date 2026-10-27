@@ -71,6 +71,9 @@ def test_pdf_trial_balance_noise_filtering_and_schedule_iii():
 def test_pdf_borderless_bank_statement_coordinates_and_stitching():
     """Verify that borderless bank statements use sub-millimeter coordinate clustering and stitch broken narrations."""
     pdf_path = os.path.join(os.path.dirname(__file__), '..', 'test_fixtures', 'sample_borderless_bank_statement.pdf')
+    if not os.path.exists(pdf_path):
+        from tests.generate_test_pdf import create_borderless_bank_statement_pdf
+        create_borderless_bank_statement_pdf(pdf_path)
     parsed = DocumentParserService.parse_file(pdf_path, "sample_borderless_bank_statement.pdf")
     assert parsed['doc_type'] == 'BANK_STATEMENT'
     assert len(parsed['records']) == 6

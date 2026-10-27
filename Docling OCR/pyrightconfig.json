@@ -1,0 +1,13 @@
+{
+  "include": [
+    "."
+  ],
+  "extraPaths": [
+    ".",
+    "../backend/.venv/Lib/site-packages"
+  ],
+  "venvPath": "../backend",
+  "venv": ".venv",
+  "reportIncompatibleVariableOverride": "none",
+  "reportIncompatibleMethodOverride": "none"
+}

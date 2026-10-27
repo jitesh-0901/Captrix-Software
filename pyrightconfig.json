@@ -1,0 +1,17 @@
+{
+  "include": [
+    "backend"
+  ],
+  "exclude": [
+    "Docling OCR"
+  ],
+  "extraPaths": [
+    "backend",
+    "backend/.venv/Lib/site-packages",
+    "Docling OCR"
+  ],
+  "venvPath": "backend",
+  "venv": ".venv",
+  "reportMissingTypeStubs": "none",
+  "reportAttributeAccessIssue": "none"
+}
