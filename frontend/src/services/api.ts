@@ -162,11 +162,26 @@ export const api = {
     const data = await res.json();
     return data.results || data;
   },
-  async resolveException(id: number, newStatus: string, notes: string) {
+  async resolveException(id: number, newStatus: string = 'RESOLVED', notes: string = '') {
     const res = await fetch(`${API_BASE}/audit/exceptions/${id}/resolve/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus, resolution_notes: notes }),
+    });
+    return res.json();
+  },
+  async resolveAllExceptions(payload: {
+    engagement?: number;
+    severity?: string;
+    status_filter?: string;
+    status?: string;
+    resolution_notes?: string;
+    ids?: number[];
+  }) {
+    const res = await fetch(`${API_BASE}/audit/exceptions/resolve_all/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
     return res.json();
   },
@@ -199,6 +214,18 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action_type: actionType, ...payload }),
+    });
+    return res.json();
+  },
+  async approveAllWorkpapers(payload: {
+    engagement?: number;
+    ids?: number[];
+    reason?: string;
+  } = {}) {
+    const res = await fetch(`${API_BASE}/reporting/workpapers/approve_all/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
     return res.json();
   },

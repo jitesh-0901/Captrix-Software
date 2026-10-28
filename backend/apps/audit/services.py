@@ -248,7 +248,7 @@ class FinancialRatiosEngine:
                 {'name': 'Days Payable Outstanding (DPO)', 'category': 'Turnover', 'value': 0.0, 'unit': 'days', 'benchmark': '30 - 60 days', 'status': 'AWAITING_DATA', 'interpretation': 'Awaiting ledger or trial balance upload.'}
             ]
 
-        tb = engagement.trial_balances.first()
+        tb = engagement.trial_balances.order_by('-id').first() if hasattr(engagement, 'trial_balances') else None
         accounts = []
         if tb and tb.accounts_snapshot:
             accounts = tb.accounts_snapshot
@@ -329,26 +329,54 @@ class FinancialRatiosEngine:
 
         # Mathematical ratios computed from verified records with strict statutory formulas
         current_ratio = round(float(ca / cl), 2) if cl > Decimal('0.00') else None
-        quick_ratio = round(float((ca - inv) / cl), 2) if cl > Decimal('0.00') else None
+        quick_assets = ca - inv
+        quick_ratio = round(float(quick_assets / cl), 2) if cl > Decimal('0.00') else None
         debt_to_equity = round(float(debt / equity), 2) if equity > Decimal('0.00') else None
 
+        # Receivables Turnover = Revenue / Trade Receivables
+        receivables_turnover = round(float(rev / debtors), 2) if debtors > Decimal('0.00') and rev > Decimal('0.00') else None
+
+        # Payables Turnover = Cost of Materials / Trade Payables
+        purchases_and_expenses = c_mat if c_mat > Decimal('0.00') else (rev * Decimal('0.70'))
+        payables_turnover = round(float(purchases_and_expenses / creditors), 2) if creditors > Decimal('0.00') and purchases_and_expenses > Decimal('0.00') else None
+
+        # Net Capital Turnover = Revenue / Working Capital (Current Assets - Current Liabilities)
+        working_capital = ca - cl
+        net_capital_turnover = round(float(rev / working_capital), 2) if working_capital != Decimal('0.00') and rev > Decimal('0.00') else None
+
+        # Profitability & Margins
         gp = rev - c_mat
         gp_margin = round(float((gp / rev) * Decimal('100.0')), 2) if rev > Decimal('0.00') else None
 
         tot_exp = c_mat + emp_exp + fin_cost + depn + oth_exp
         np_amt = (rev + oth_inc) - tot_exp
-        np_margin = round(float((np_amt / rev) * Decimal('100.0')), 2) if rev > Decimal('0.00') else None
+        tot_rev = rev + oth_inc
+        np_margin = round(float((np_amt / tot_rev) * Decimal('100.0')), 2) if tot_rev > Decimal('0.00') else None
 
+        # Turnover Days
         dso = round(float((debtors / rev) * Decimal('365.0')), 1) if rev > Decimal('0.00') else None
-        cost_base = c_mat if c_mat > Decimal('0.00') else (rev * Decimal('0.70'))
-        dpo = round(float((creditors / cost_base) * Decimal('365.0')), 1) if cost_base > Decimal('0.00') else None
+        dpo = round(float((creditors / purchases_and_expenses) * Decimal('365.0')), 1) if purchases_and_expenses > Decimal('0.00') else None
+
+        def _fmt_ratio(val, unit):
+            if val is None:
+                return "N/A"
+            if unit == '%':
+                return f"{val:.2f}%"
+            if unit == 'days':
+                return f"{val:.1f} days"
+            return f"{val:.2f}{unit}"
 
         return [
             {
                 'name': 'Current Ratio',
                 'category': 'Liquidity',
                 'value': current_ratio,
+                'display_value': _fmt_ratio(current_ratio, 'x') if (ca > 0 or cl > 0) else "Insufficient data",
                 'formula': 'Current Assets / Current Liabilities',
+                'numerator_name': 'Current Assets',
+                'numerator_value': str(ca),
+                'denominator_name': 'Current Liabilities',
+                'denominator_value': str(cl),
                 'unit': 'x',
                 'benchmark': '1.33 - 2.0x',
                 'status': (
@@ -367,7 +395,12 @@ class FinancialRatiosEngine:
                 'name': 'Quick Ratio (Acid Test)',
                 'category': 'Liquidity',
                 'value': quick_ratio,
+                'display_value': _fmt_ratio(quick_ratio, 'x') if (quick_assets > 0 or cl > 0) else "Insufficient data",
                 'formula': '(Current Assets - Inventories) / Current Liabilities',
+                'numerator_name': 'Quick Assets (Current Assets - Inventories)',
+                'numerator_value': str(quick_assets),
+                'denominator_name': 'Current Liabilities',
+                'denominator_value': str(cl),
                 'unit': 'x',
                 'benchmark': '1.0x',
                 'status': (
@@ -376,7 +409,7 @@ class FinancialRatiosEngine:
                           else ('DATA_INCOMPLETE' if cl == Decimal('0.00') and ca == Decimal('0.00') else 'NOT_CALCULABLE'))
                 ),
                 'interpretation': (
-                    f"Immediate liquid assets cover current liabilities by {quick_ratio}x."
+                    f"Immediate liquid assets (₹{quick_assets:,.2f}) cover current liabilities (₹{cl:,.2f}) by {quick_ratio}x."
                     if quick_ratio is not None
                     else "Current liabilities are zero or data is incomplete; quick ratio cannot be calculated."
                 )
@@ -385,7 +418,12 @@ class FinancialRatiosEngine:
                 'name': 'Debt to Equity Ratio',
                 'category': 'Solvency',
                 'value': debt_to_equity,
+                'display_value': _fmt_ratio(debt_to_equity, 'x') if equity > 0 else ("Negative Equity" if equity < 0 else "Insufficient data"),
                 'formula': 'Total Debt / Shareholders\' Funds',
+                'numerator_name': 'Total Debt (Borrowings)',
+                'numerator_value': str(debt),
+                'denominator_name': 'Shareholders\' Funds (Equity)',
+                'denominator_value': str(equity),
                 'unit': 'x',
                 'benchmark': '< 2.0x',
                 'status': (
@@ -394,17 +432,114 @@ class FinancialRatiosEngine:
                           else ('NEGATIVE_EQUITY' if equity < Decimal('0.00') else 'N/A'))
                 ),
                 'interpretation': (
-                    f"Total Debt (₹{debt:,.2f}) represents {debt_to_equity}x of net worth."
+                    f"Total Debt (₹{debt:,.2f}) represents {debt_to_equity}x of shareholders' equity (₹{equity:,.2f})."
                     if debt_to_equity is not None
                     else (f"Net worth is negative (₹{equity:,.2f}) due to accumulated losses; capital is eroded."
                           if equity < Decimal('0.00') else "Zero debt or equity data not available.")
                 )
             },
             {
+                'name': 'Trade Receivables Turnover Ratio',
+                'category': 'Turnover',
+                'value': receivables_turnover,
+                'display_value': _fmt_ratio(receivables_turnover, 'x') if (rev > 0 and debtors > 0) else "Insufficient data",
+                'formula': 'Revenue from Operations / Trade Receivables',
+                'numerator_name': 'Revenue from Operations',
+                'numerator_value': str(rev),
+                'denominator_name': 'Trade Receivables',
+                'denominator_value': str(debtors),
+                'unit': 'x',
+                'benchmark': '> 6.0x',
+                'status': (
+                    'HEALTHY' if receivables_turnover is not None and receivables_turnover >= 6.0
+                    else ('MODERATE' if receivables_turnover is not None and receivables_turnover >= 3.0
+                          else ('CONCERN' if receivables_turnover is not None else 'INSUFFICIENT_DATA'))
+                ),
+                'interpretation': (
+                    f"Receivables turned over {receivables_turnover}x during the period on sales of ₹{rev:,.2f}."
+                    if receivables_turnover is not None
+                    else "Operating turnover or debtors balance is zero; receivables turnover cannot be computed."
+                )
+            },
+            {
+                'name': 'Trade Payables Turnover Ratio',
+                'category': 'Turnover',
+                'value': payables_turnover,
+                'display_value': _fmt_ratio(payables_turnover, 'x') if (purchases_and_expenses > 0 and creditors > 0) else "Insufficient data",
+                'formula': 'Cost of Materials & Direct Expenses / Trade Payables',
+                'numerator_name': 'Purchases & Direct Expenses',
+                'numerator_value': str(purchases_and_expenses),
+                'denominator_name': 'Trade Payables',
+                'denominator_value': str(creditors),
+                'unit': 'x',
+                'benchmark': '6.0 - 12.0x',
+                'status': (
+                    'HEALTHY' if payables_turnover is not None and payables_turnover >= 6.0
+                    else ('SLOW' if payables_turnover is not None and payables_turnover < 6.0 else 'INSUFFICIENT_DATA')
+                ),
+                'interpretation': (
+                    f"Payables turned over {payables_turnover}x during the period on purchases/costs of ₹{purchases_and_expenses:,.2f}."
+                    if payables_turnover is not None
+                    else "Purchases or payables balance is zero; payables turnover cannot be computed."
+                )
+            },
+            {
+                'name': 'Net Capital Turnover Ratio',
+                'category': 'Turnover',
+                'value': net_capital_turnover,
+                'display_value': _fmt_ratio(net_capital_turnover, 'x') if (rev > 0 and working_capital != 0) else "Insufficient data",
+                'formula': 'Revenue from Operations / Working Capital (Current Assets - Current Liabilities)',
+                'numerator_name': 'Revenue from Operations',
+                'numerator_value': str(rev),
+                'denominator_name': 'Working Capital',
+                'denominator_value': str(working_capital),
+                'unit': 'x',
+                'benchmark': '> 2.0x',
+                'status': (
+                    'HEALTHY' if net_capital_turnover is not None and net_capital_turnover >= 2.0
+                    else ('NEGATIVE_WC' if working_capital < Decimal('0.00')
+                          else ('CONCERN' if net_capital_turnover is not None else 'INSUFFICIENT_DATA'))
+                ),
+                'interpretation': (
+                    f"Working capital of ₹{working_capital:,.2f} supported turnover of ₹{rev:,.2f} ({net_capital_turnover}x)."
+                    if net_capital_turnover is not None
+                    else (f"Working capital is negative (₹{working_capital:,.2f}); short-term liabilities exceed short-term assets."
+                          if working_capital < Decimal('0.00') else "Revenue or working capital is zero; net capital turnover cannot be computed.")
+                )
+            },
+            {
+                'name': 'Net Profit Margin',
+                'category': 'Profitability',
+                'value': np_margin,
+                'display_value': _fmt_ratio(np_margin, '%') if tot_rev > 0 else "Insufficient data",
+                'formula': '(Profit After Tax / Total Revenue) * 100',
+                'numerator_name': 'Profit After Tax',
+                'numerator_value': str(np_amt),
+                'denominator_name': 'Total Revenue',
+                'denominator_value': str(tot_rev),
+                'unit': '%',
+                'benchmark': '> 10.0%',
+                'status': (
+                    'HEALTHY' if np_margin is not None and np_margin >= 10.0
+                    else ('MODERATE' if np_margin is not None and np_margin > 0
+                          else ('LOSS' if np_margin is not None and np_margin <= 0 else 'NOT_CALCULABLE'))
+                ),
+                'interpretation': (
+                    f"Net profit margin is {np_margin}% on total revenue of ₹{tot_rev:,.2f}."
+                    if np_margin is not None
+                    else "Total revenue is zero; net profit margin cannot be computed."
+                )
+            },
+            {
                 'name': 'Gross Profit Margin',
                 'category': 'Profitability',
                 'value': gp_margin,
+                'display_value': _fmt_ratio(gp_margin, '%') if rev > 0 else "Insufficient data",
                 'formula': '((Revenue - Cost of Materials) / Revenue) * 100',
+                'numerator_name': 'Gross Profit (Revenue - Cost of Materials)',
+                'numerator_value': str(gp),
+                'denominator_name': 'Revenue from Operations',
+                'denominator_value': str(rev),
                 'unit': '%',
                 'benchmark': '> 20.0%',
                 'status': (
@@ -419,28 +554,15 @@ class FinancialRatiosEngine:
                 )
             },
             {
-                'name': 'Net Profit Margin (PAT)',
-                'category': 'Profitability',
-                'value': np_margin,
-                'formula': '(Profit After Tax / Total Revenue) * 100',
-                'unit': '%',
-                'benchmark': '> 10.0%',
-                'status': (
-                    'HEALTHY' if np_margin is not None and np_margin >= 10.0
-                    else ('MODERATE' if np_margin is not None and np_margin > 0
-                          else ('LOSS' if np_margin is not None and np_margin <= 0 else 'NOT_CALCULABLE'))
-                ),
-                'interpretation': (
-                    f"Net profit margin is {np_margin}% on total revenue of ₹{(rev + oth_inc):,.2f}."
-                    if np_margin is not None
-                    else "Revenue is zero; net profit margin cannot be computed."
-                )
-            },
-            {
                 'name': 'Days Sales Outstanding (DSO)',
                 'category': 'Turnover',
                 'value': dso,
+                'display_value': _fmt_ratio(dso, 'days') if rev > 0 else "Insufficient data",
                 'formula': '(Trade Receivables / Revenue) * 365',
+                'numerator_name': 'Trade Receivables',
+                'numerator_value': str(debtors),
+                'denominator_name': 'Revenue from Operations',
+                'denominator_value': str(rev),
                 'unit': 'days',
                 'benchmark': '< 60 days',
                 'status': (
@@ -458,7 +580,12 @@ class FinancialRatiosEngine:
                 'name': 'Days Payable Outstanding (DPO)',
                 'category': 'Turnover',
                 'value': dpo,
+                'display_value': _fmt_ratio(dpo, 'days') if purchases_and_expenses > 0 else "Insufficient data",
                 'formula': '(Trade Payables / Purchases & Direct Expenses) * 365',
+                'numerator_name': 'Trade Payables',
+                'numerator_value': str(creditors),
+                'denominator_name': 'Purchases & Direct Expenses',
+                'denominator_value': str(purchases_and_expenses),
                 'unit': 'days',
                 'benchmark': '30 - 60 days',
                 'status': (

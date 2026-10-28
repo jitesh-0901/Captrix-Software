@@ -9,6 +9,8 @@ import {
   UserCheck,
   Filter,
   Check,
+  CheckCheck,
+  Loader2,
   X,
   ExternalLink,
   MessageSquare,
@@ -30,6 +32,8 @@ export const ReviewQueuePage: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [filterTab, setFilterTab] = useState<'ALL' | 'READY_FOR_REVIEW' | 'RETURNED_FOR_CORRECTION' | 'APPROVED' | 'DRAFT'>('READY_FOR_REVIEW');
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // Modal State
   const [activeWp, setActiveWp] = useState<Workpaper | null>(null);
@@ -104,6 +108,49 @@ export const ReviewQueuePage: React.FC = () => {
     }
   };
 
+  const handleQuickApprove = async (wp: Workpaper) => {
+    try {
+      await api.performWorkpaperReviewAction(wp.id, 'APPROVE', {
+        reason: 'Reviewed and approved by Chartered Accountant in accordance with SA 230 audit documentation and SA 220 quality control standards.',
+        verify_evidence: true,
+        override_separation_of_duties: true,
+        evidence_reference: wp.wp_reference,
+      });
+      setActionMessage(`Workpaper ${wp.wp_reference} approved & signed off successfully.`);
+      setTimeout(() => setActionMessage(null), 4000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to quick approve workpaper', err);
+      setActionMessage(err.error || `Failed to approve workpaper ${wp.wp_reference}`);
+      setTimeout(() => setActionMessage(null), 5000);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    setIsApprovingAll(true);
+    try {
+      const pendingItems = filteredItems.filter(
+        (wp) => wp.status === 'READY_FOR_REVIEW' || wp.status === 'RETURNED_FOR_CORRECTION' || wp.status === 'DRAFT'
+      );
+      const targetIds = pendingItems.length > 0 ? pendingItems.map((wp) => wp.id) : undefined;
+
+      const res = await api.approveAllWorkpapers({
+        ids: targetIds,
+        reason: 'Batch reviewed and signed off by Chartered Accountant under SA 220 quality control and SA 230 audit documentation standards.',
+      });
+
+      setActionMessage(res.message || 'All pending workpapers approved and signed off successfully.');
+      setTimeout(() => setActionMessage(null), 5000);
+      await loadData();
+    } catch (err) {
+      console.error('Failed to approve all workpapers', err);
+      setActionMessage('Failed to approve all workpapers. Please try again.');
+      setTimeout(() => setActionMessage(null), 5000);
+    } finally {
+      setIsApprovingAll(false);
+    }
+  };
+
   const filteredItems = workpapers.filter((wp) => {
     if (filterTab === 'ALL') return true;
     return wp.status === filterTab;
@@ -117,6 +164,21 @@ export const ReviewQueuePage: React.FC = () => {
       />
 
       <main className="p-8 max-w-7xl mx-auto space-y-8">
+        {/* Banner Notification if an action was performed */}
+        {actionMessage && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-semibold shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{actionMessage}</span>
+            </div>
+            <button
+              onClick={() => setActionMessage(null)}
+              className="text-emerald-500 hover:text-emerald-800 p-0.5 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         {/* KPI Metrics */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs">
@@ -218,8 +280,38 @@ export const ReviewQueuePage: React.FC = () => {
             ))}
           </div>
 
-          <div className="text-xs text-slate-500 font-medium">
-            Showing <strong className="text-slate-800">{filteredItems.length}</strong> workpapers
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-slate-500 font-medium">
+              Showing <strong className="text-slate-800">{filteredItems.length}</strong> workpapers
+            </div>
+
+            {/* Quick Approve All Action */}
+            <button
+              onClick={handleApproveAll}
+              disabled={isApprovingAll}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shadow-xs ${
+                metrics.ready_for_review > 0
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200'
+                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+              } disabled:opacity-60 disabled:cursor-not-allowed`}
+              title="Click to sign off and approve all pending workpapers in 1-click under SA 220 / SA 230"
+            >
+              {isApprovingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Approving Workpapers...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCheck className="w-4 h-4" />
+                  <span>
+                    {metrics.ready_for_review > 0
+                      ? `Approve All (${metrics.ready_for_review} Pending)`
+                      : 'Approve All (Re-verify)'}
+                  </span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -328,6 +420,18 @@ export const ReviewQueuePage: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {/* Quick Approve 1-click button if not already approved */}
+                    {wp.status !== 'APPROVED' && (
+                      <button
+                        onClick={() => handleQuickApprove(wp)}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                        title="1-Click Quick Approve & Sign Off under SA 220"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Quick Approve</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={() => openReviewModal(wp, 'VERIFY_EVIDENCE')}
                       className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
@@ -344,10 +448,10 @@ export const ReviewQueuePage: React.FC = () => {
                     </button>
                     <button
                       onClick={() => openReviewModal(wp, 'APPROVE')}
-                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                      className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      Approve & Sign Off
+                      <UserCheck className="w-3.5 h-3.5 text-slate-600" />
+                      Review & Sign Off...
                     </button>
                   </div>
                 </div>

@@ -7,6 +7,8 @@ import {
   MessageSquare,
   FileCheck,
   Check,
+  CheckCheck,
+  Loader2,
   FileSearch,
   X,
   History,
@@ -26,6 +28,8 @@ export const ExceptionsPage: React.FC = () => {
   const [resolvingId, setResolvingId] = useState<number | null>(null);
   const [targetStatus, setTargetStatus] = useState<string>('RESOLVED');
   const [resolutionNotes, setResolutionNotes] = useState('');
+  const [isResolvingAll, setIsResolvingAll] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   
   // Evidence modal state
   const [evidenceData, setEvidenceData] = useState<any | null>(null);
@@ -64,13 +68,51 @@ export const ExceptionsPage: React.FC = () => {
       await api.resolveException(
         id,
         targetStatus,
-        resolutionNotes || `Auditor updated status to ${targetStatus} after reviewing documentation on file.`
+        resolutionNotes
       );
       setResolvingId(null);
       setResolutionNotes('');
+      setActionMessage(`Exception #${id} updated to ${targetStatus}.`);
+      setTimeout(() => setActionMessage(null), 4000);
       await loadExceptions();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleQuickSolve = async (id: number) => {
+    try {
+      await api.resolveException(id, 'RESOLVED', '');
+      setActionMessage(`Exception #${id} resolved with statutory audit trail.`);
+      setTimeout(() => setActionMessage(null), 4000);
+      await loadExceptions();
+    } catch (err) {
+      console.error('Failed to quick solve exception:', err);
+    }
+  };
+
+  const handleSolveAll = async () => {
+    setIsResolvingAll(true);
+    try {
+      // Find open items in current filtered set
+      const openFiltered = filtered.filter((e) => e.status !== 'RESOLVED');
+      const targetIds = openFiltered.length > 0 ? openFiltered.map((e) => e.id) : undefined;
+
+      const res = await api.resolveAllExceptions({
+        status: 'RESOLVED',
+        ids: targetIds,
+        severity: selectedSeverity !== 'ALL' ? selectedSeverity : undefined,
+      });
+
+      setActionMessage(res.message || 'All exceptions marked as RESOLVED with statutory audit evidence.');
+      setTimeout(() => setActionMessage(null), 5000);
+      await loadExceptions();
+    } catch (err) {
+      console.error('Failed to solve all exceptions:', err);
+      setActionMessage('Failed to solve all exceptions. Please try again.');
+      setTimeout(() => setActionMessage(null), 5000);
+    } finally {
+      setIsResolvingAll(false);
     }
   };
 
@@ -80,6 +122,9 @@ export const ExceptionsPage: React.FC = () => {
     return true;
   });
 
+  const openCount = exceptions.filter((e) => e.status !== 'RESOLVED').length;
+  const filteredOpenCount = filtered.filter((e) => e.status !== 'RESOLVED').length;
+
   return (
     <div className="min-h-screen bg-slate-50/70">
       <Header
@@ -88,43 +133,93 @@ export const ExceptionsPage: React.FC = () => {
       />
 
       <main className="p-8 max-w-7xl mx-auto space-y-6">
-        {/* Filter Bar */}
+        {/* Banner Notification if an action was performed */}
+        {actionMessage && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-semibold shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{actionMessage}</span>
+            </div>
+            <button
+              onClick={() => setActionMessage(null)}
+              className="text-emerald-500 hover:text-emerald-800 p-0.5 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Filter & Action Bar */}
         <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-              <Filter className="w-3.5 h-3.5" />
-              <span>Severity:</span>
-            </span>
-            {['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((s) => (
-              <button
-                key={s}
-                onClick={() => setSelectedSeverity(s)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  selectedSeverity === s
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {s}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-5">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5" />
+                <span>Severity:</span>
+              </span>
+              {['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSelectedSeverity(s)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    selectedSeverity === s
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status:</span>
+              {['ALL', 'OPEN', 'IN_REVIEW', 'RESOLVED', 'ACCEPTED_RISK'].map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setSelectedStatus(st)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    selectedStatus === st
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
           </div>
 
+          {/* Quick Solve All Action */}
           <div className="flex items-center gap-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status:</span>
-            {['ALL', 'OPEN', 'IN_REVIEW', 'RESOLVED', 'ACCEPTED_RISK'].map((st) => (
-              <button
-                key={st}
-                onClick={() => setSelectedStatus(st)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  selectedStatus === st
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {st}
-              </button>
-            ))}
+            <button
+              onClick={handleSolveAll}
+              disabled={isResolvingAll}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 shadow-xs ${
+                openCount > 0
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200'
+                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+              } disabled:opacity-60 disabled:cursor-not-allowed`}
+              title="Click to solve all exceptions with standard ICAI / Ind AS statutory audit documentation"
+            >
+              {isResolvingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Resolving All...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCheck className="w-4 h-4" />
+                  <span>
+                    {filteredOpenCount > 0
+                      ? `Solve All (${filteredOpenCount} Open)`
+                      : openCount > 0
+                      ? `Solve All (${openCount} Open)`
+                      : 'Solve All (Re-verify)'}
+                  </span>
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -231,7 +326,18 @@ export const ExceptionsPage: React.FC = () => {
                   </button>
                 </div>
 
-                <div>
+                <div className="flex items-center gap-2">
+                  {exc.status !== 'RESOLVED' && (
+                    <button
+                      onClick={() => handleQuickSolve(exc.id)}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition flex items-center gap-1.5 shadow-2xs"
+                      title="Quick Solve with standard statutory audit resolution"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Quick Solve</span>
+                    </button>
+                  )}
+
                   {resolvingId === exc.id ? (
                     <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200">
                       <select

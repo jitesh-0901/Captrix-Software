@@ -121,7 +121,15 @@ class StatutoryFormMatrixEngine:
 
         all_excs = engagement.exceptions.all()
         cash_40a_excs = all_excs.filter(rule_code__icontains='40A').count()
-        msme_overdue = engagement.aging_items.filter(is_overdue_43bh=True).count()
+        overdue_items = engagement.aging_items.filter(is_overdue_43bh=True)
+        msme_overdue = overdue_items.count()
+        msme_overdue_amt = sum((i.outstanding_amount for i in overdue_items), Decimal('0.00'))
+        payable_items = engagement.aging_items.filter(item_type='PAYABLE')
+        total_payables_count = payable_items.count()
+        total_payables_subledger = sum((i.outstanding_amount for i in payable_items), Decimal('0.00'))
+        pay_ledgers = engagement.company.ledger_accounts.filter(coa__schedule_iii_group='TRADE_PAYABLES')
+        ctrl_balance = sum((l.closing_balance for l in pay_ledgers), Decimal('0.00'))
+        ctrl_var = abs(ctrl_balance - total_payables_subledger)
 
         audits = []
 
@@ -143,8 +151,11 @@ class StatutoryFormMatrixEngine:
                     fa_cnt = engagement.fixed_assets.count()
                     cnt_str = f"{fa_cnt} asset records" if fa_cnt > 0 else "Property, Plant & Equipment schedule"
                     ev_status = 'AVAILABLE'
-                    comp_status = 'COMPLIANT'
-                    audit_rem = f"{cnt_str} tracked in FAR with unique asset codes, capitalized costs, and Schedule II useful lives. Proper records maintained pursuant to Clause 3(i)(a)."
+                    comp_status = 'REVIEW_REQUIRED'
+                    audit_rem = (
+                        f"{cnt_str} tracked in FAR with unique asset codes, capitalized costs, and Schedule II useful lives pursuant to Clause 3(i)(a). "
+                        f"However, physical verification report under Clause 3(i)(b) is not in engagement files; physical inspection requires verification by statutory auditor."
+                    )
                 else:
                     ev_status = 'MISSING'
                     comp_status = 'REVIEW_REQUIRED'
@@ -153,7 +164,7 @@ class StatutoryFormMatrixEngine:
                 if has_inventory:
                     ev_status = 'AVAILABLE'
                     comp_status = 'REVIEW_REQUIRED'
-                    audit_rem = "Inventory balances tracked in books of account; physical verification count sheets and quarterly lender hypothecation statements not provided in engagement files."
+                    audit_rem = "Inventory balances tracked in books of account; physical verification count sheets and quarterly lender hypothecation statements not provided in engagement files; independent physical verification required."
                 else:
                     ev_status = 'MISSING'
                     comp_status = 'REVIEW_REQUIRED'
@@ -179,7 +190,11 @@ class StatutoryFormMatrixEngine:
             elif clause_no == "Clause 3(xi)":
                 ev_status = 'PENDING_INSPECTION'
                 comp_status = 'REVIEW_REQUIRED'
-                audit_rem = "Forensic first-digit distribution (Benford's Law) identified no material statistical anomalies in processed samples. However, SA 240 requires inspection of management representation letter and whistle-blower registry to establish absence of fraud."
+                audit_rem = (
+                    "Analytical review and Benford's Law distribution executed on processed samples. "
+                    "Pursuant to SA 240, statistical tests alone cannot establish the absence of fraud. "
+                    "Inspection of management representation letter, internal audit reports, and whistle-blower registry by the statutory auditor is mandatory."
+                )
             elif clause_no == "Clause 3(xvii)":
                 if has_tb or has_txns:
                     ev_status = 'AVAILABLE'
@@ -253,19 +268,23 @@ class StatutoryFormMatrixEngine:
                     comp_status = 'REVIEW_REQUIRED'
                     audit_rem = "Cash daybook / vouchers not supplied; Rule 6DD compliance not verified."
             elif clause_no == "Clause 22":
-                if has_aging or engagement.aging_items.exists():
-                    if msme_overdue > 0:
-                        ev_status = 'AVAILABLE'
-                        comp_status = 'REPORTED'
-                        audit_rem = f"Subledger aging screened against Section 15 45-day payment window; {msme_overdue} overdue MSME invoices tabulated for tax disallowance under Section 43B(h)."
-                    else:
-                        ev_status = 'AVAILABLE'
-                        comp_status = 'COMPLIANT'
-                        audit_rem = "All trade payables screened; nil overdue MSME supplier balances exceeding 45-day statutory limit."
-                else:
+                if not (has_aging or engagement.aging_items.exists()) or total_payables_count == 0:
                     ev_status = 'MISSING'
                     comp_status = 'REVIEW_REQUIRED'
-                    audit_rem = "Creditors subledger aging schedule not supplied; MSME 45-day overdue status unverified."
+                    audit_rem = "Creditors subledger aging schedule not supplied or contains nil payable records; MSME 45-day overdue status unverified."
+                elif msme_overdue > 0:
+                    ev_status = 'AVAILABLE'
+                    comp_status = 'REPORTED'
+                    var_note = f" Note: Reconciliation variance of ₹{ctrl_var:,.2f} between Trade Payables control account (₹{ctrl_balance:,.2f}) and vendor subledger (₹{total_payables_subledger:,.2f})." if ctrl_var > Decimal('1000.00') else ""
+                    audit_rem = f"Subledger aging screened against Section 15 45-day window; {msme_overdue} overdue MSME invoices totaling ₹{msme_overdue_amt:,.2f} tabulated for tax disallowance under Section 43B(h).{var_note}"
+                elif ctrl_var > Decimal('1000.00'):
+                    ev_status = 'AVAILABLE'
+                    comp_status = 'REVIEW_REQUIRED'
+                    audit_rem = f"Reconciliation variance of ₹{ctrl_var:,.2f} between Trade Payables control account (₹{ctrl_balance:,.2f}) and vendor subledger (₹{total_payables_subledger:,.2f}); MSME completeness unverified pending reconciliation."
+                else:
+                    ev_status = 'AVAILABLE'
+                    comp_status = 'COMPLIANT'
+                    audit_rem = "All trade payables reconciled and screened; nil overdue MSME supplier balances exceeding 45-day statutory limit."
             elif clause_no == "Clause 26":
                 ev_status = 'MISSING'
                 comp_status = 'REVIEW_REQUIRED'

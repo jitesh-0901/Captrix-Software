@@ -572,23 +572,23 @@ def extract_debit_credit_amounts(row_dict: dict) -> tuple[Decimal, Decimal]:
     """
     dr_val = None
     for k in (
-        'Debit', 'debit', 'Debit (INR)', 'debit (inr)',
         'Closing Debit (INR)', 'closing_debit_inr', 'Closing Debit', 'closing_debit',
-        'Closing Dr', 'closing_dr',
+        'Closing Dr', 'closing_dr', 'Closing Balance Dr', 'closing balance dr',
+        'Debit', 'debit', 'Debit (INR)', 'debit (inr)',
         'Debit_INR', 'debit_inr', 'Dr. Amt', 'dr. amt', 'Dr', 'dr', 'Dr Amount', 'dr amount'
     ):
-        if k in row_dict:
+        if k in row_dict and row_dict[k] is not None and str(row_dict[k]).strip() != '':
             dr_val = row_dict[k]
             break
 
     cr_val = None
     for k in (
-        'Credit', 'credit', 'Credit (INR)', 'credit (inr)',
         'Closing Credit (INR)', 'closing_credit_inr', 'Closing Credit', 'closing_credit',
-        'Closing Cr', 'closing_cr',
+        'Closing Cr', 'closing_cr', 'Closing Balance Cr', 'closing balance cr',
+        'Credit', 'credit', 'Credit (INR)', 'credit (inr)',
         'Credit_INR', 'credit_inr', 'Cr. Amt', 'cr. amt', 'Cr', 'cr', 'Cr Amount', 'cr amount'
     ):
-        if k in row_dict:
+        if k in row_dict and row_dict[k] is not None and str(row_dict[k]).strip() != '':
             cr_val = row_dict[k]
             break
 
@@ -703,8 +703,12 @@ class TrialBalanceService:
                 }
 
         diff = total_dr - total_cr
-        is_balanced = abs(diff) < Decimal('0.005')
-        status = 'BALANCED' if is_balanced else 'UNBALANCED_DIFFERENCE'
+        if not processed_accounts:
+            is_balanced = False
+            status = 'NOT_COMPUTED'
+        else:
+            is_balanced = abs(diff) < Decimal('0.005')
+            status = 'BALANCED' if is_balanced else 'UNBALANCED'
 
         snapshot = None
         if engagement:
@@ -860,6 +864,7 @@ class TrialBalanceService:
             'total_debits': str(total_dr),
             'total_credits': str(total_cr),
             'difference_amount': str(diff),
+            'exact_difference': str(diff),
             'is_balanced': is_balanced,
             'status': status,
             'balance_sheet_cross_check': {
@@ -1386,28 +1391,46 @@ class GeneralLedgerScrutinyService:
         for txn in transactions:
             flags = []
             amt = txn.debit_amount if txn.debit_amount > 0 else txn.credit_amount
+            acc_name_lower = txn.ledger_account.name.lower() if txn.ledger_account else ""
 
-            # 1. Round amount test (multiples of 10,000, 50,000, 1,00,000)
-            if amt > Decimal('10000.00') and (amt % Decimal('10000.00')) == Decimal('0.00'):
+            # 1. Round amount and round payment test (multiples of 10,000, 50,000, 1,00,000)
+            if amt >= Decimal('10000.00') and (amt % Decimal('10000.00')) == Decimal('0.00'):
                 flags.append("ROUND_AMOUNT")
+                is_payment = (
+                    txn.voucher_type == VoucherType.PAYMENT or
+                    txn.debit_amount > Decimal('0.00') or
+                    any(p in acc_name_lower for p in ['bank', 'cash', 'payable', 'creditor'])
+                )
+                if is_payment:
+                    flags.append("ROUND_NUMBER_PAYMENT")
 
             # 2. Section 40A(3) Cash limit check (> ₹10,000 in cash payment)
-            is_cash_voucher = 'cash' in txn.ledger_account.name.lower() or 'cash' in (txn.counterparty or '').lower()
+            is_cash_voucher = 'cash' in acc_name_lower or 'cash' in (txn.counterparty or '').lower()
             if is_cash_voucher and amt > Decimal('10000.00'):
                 flags.append("SECTION_40A3_CASH_LIMIT_EXCEEDED")
 
-            # 3. Weekend posting test (Saturday = 5, Sunday = 6)
-            if txn.date.weekday() in [5, 6]:
+            # 3. Sunday transaction & Weekend posting test (Sunday = 6, Saturday = 5)
+            if txn.date.weekday() == 6:
+                flags.append("SUNDAY_TRANSACTION")
+                flags.append("WEEKEND_POSTING")
+            elif txn.date.weekday() == 5:
                 flags.append("WEEKEND_POSTING")
 
-            # 4. Unusual or empty narration
+            # 4. Large Miscellaneous Expenses check (>= ₹25,000 in vague/misc accounts)
+            is_misc_account = any(k in acc_name_lower for k in [
+                'miscellaneous', 'misc', 'sundry expenses', 'sundry expense', 'general expenses', 'other expenses'
+            ])
+            if is_misc_account and amt >= Decimal('25000.00'):
+                flags.append("LARGE_MISCELLANEOUS_EXPENSE")
+
+            # 5. Unusual or empty narration
             narration_clean = (txn.narration or '').strip().lower()
             if not narration_clean:
                 flags.append("MISSING_NARRATION")
             elif any(term in narration_clean for term in ['rectify', 'adjust', 'dummy', 'temp', 'round off']):
                 flags.append("SUSPICIOUS_NARRATION")
 
-            # 5. Extract first significant digit for Benford's Law
+            # 6. Extract first significant digit for Benford's Law
             if amt > Decimal('0.00'):
                 s_amt = str(amt).replace('.', '').lstrip('0')
                 if s_amt:
@@ -1484,6 +1507,11 @@ class GeneralLedgerScrutinyService:
             'flagged_transactions': flagged_transactions,
             'benford_analysis': list(benford_analysis.values()),
             'benford_chi_square': round(chi_square_stat, 2),
-            'benford_conformity': 'ACCEPTABLE' if chi_square_stat < 15.5 else 'SUSPICIOUS_ANOMALIES_DETECTED',
+            'benford_conformity': 'CONFORMING' if chi_square_stat < 15.5 else 'ANOMALY_REQUIRING_SCRUTINY',
+            'sa_240_disclaimer': (
+                "In accordance with SA 240, statistical tests and Benford's Law analysis serve as risk indicators "
+                "to direct substantive testing. The presence of statistical deviation or unusual transaction patterns "
+                "warrants professional inquiry and does not establish intentional fraud without corroborating evidence."
+            ),
             'sequence_gaps': sequence_gaps
         }

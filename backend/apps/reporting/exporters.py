@@ -363,13 +363,13 @@ class ReportExporterService:
         else:
             mat_text = f"₹{mat_val:,.2f} (Statutory benchmark: Capital / Asset base)"
 
-        # Working papers text
+        # Working papers text (SA 230 Preparation & Review vs Partner Authorization)
         if open_high_crit > 0:
-            wp_text = f"{approved_wps} of {total_wps} Approved ({open_high_crit} High/Critical Exceptions Open — Partner Authorization Pending)"
+            wp_text = f"{approved_wps} of {total_wps} Reviewed (SA 230 File Documented &bull; {open_high_crit} High/Critical Exceptions Open &bull; Partner Authorization Pending)"
         elif unreviewed_wps > 0 or total_wps == 0:
-            wp_text = f"{approved_wps} of {total_wps} Approved (DRAFT — Final conclusion pending partner authorization)"
+            wp_text = f"{approved_wps} of {total_wps} Reviewed (DRAFT — Final conclusion pending partner authorization)"
         elif not is_final:
-            wp_text = f"{total_wps} of {total_wps} Approved (DRAFT — Partner Authorization Pending)"
+            wp_text = f"{total_wps} of {total_wps} Reviewed (SA 230 File Documented &bull; Partner Authorization Pending)"
         else:
             wp_text = f"{total_wps} of {total_wps} Signed Off & Partner Authorized"
 
@@ -383,9 +383,26 @@ class ReportExporterService:
         else:
             proc_text = f"{procs_exec} Executed ({procs_pass} Clean, 0 Exceptions Noted)"
 
-        bs_eq_desc = sec_c.get('balance_sheet_status', 'BALANCED')
-        if has_fin_data and tot_ast_val > 0:
-            bs_eq_desc = f"BALANCED (Total Assets: ₹{tot_ast_val:,.2f} = Total Equity & Liab: ₹{tot_ast_val:,.2f})"
+        bs_is_bal = sec_c.get('balance_sheet_balanced', False)
+        bs_var = parse_indian_amount(sec_c.get('balance_sheet_difference', '0.00')) or Decimal('0.00')
+        tot_ast_val = parse_indian_amount(sec_c.get('total_assets', '0.00')) or Decimal('0.00')
+        tot_eq_liab_val = parse_indian_amount(sec_c.get('total_equity_and_liabilities', '0.00')) or Decimal('0.00')
+
+        if not has_fin_data:
+            bs_eq_desc = "NOT_COMPUTED (Awaiting financial statements upload)"
+        elif bs_is_bal and bs_var < Decimal('0.01'):
+            bs_eq_desc = f"BALANCED (Total Assets: ₹{tot_ast_val:,.2f} = Total Equity & Liab: ₹{tot_eq_liab_val:,.2f})"
+        else:
+            bs_eq_desc = f"UNBALANCED (Total Assets: ₹{tot_ast_val:,.2f}, Total Equity & Liab: ₹{tot_eq_liab_val:,.2f}, Variance: ₹{bs_var:,.2f})"
+
+        tb_status_raw = sec_b.get('trial_balance_status', 'NOT_COMPUTED')
+        tb_diff_val = parse_indian_amount(sec_b.get('trial_balance_difference', '0.00')) or Decimal('0.00')
+        if tb_status_raw == 'BALANCED':
+            tb_desc = "BALANCED (Debits equal Credits mathematically with ₹0.00 variance)"
+        elif tb_status_raw == 'UNBALANCED':
+            tb_desc = f"UNBALANCED (Variance of ₹{tb_diff_val:,.2f})"
+        else:
+            tb_desc = f"{tb_status_raw} (Awaiting trial balance upload)"
 
         # Revenue evidence verification status
         rev_ev = gate_result.get('gate_statuses', {}).get('procedure_evidence_gate', {}).get('revenue_cutoff_gstr1_eway', {})
@@ -408,7 +425,7 @@ class ReportExporterService:
 
         summary_rows = [
             [p_head("Reported Audit Parameter / Focus Area"), p_head("Financial Figure & Statutory Verification Status")],
-            [p_cell("Trial Balance Equilibrium (SA 500)", td_bold_style), p_cell(f"{sec_b['trial_balance_status']} (Debits equal Credits mathematically with ₹0.00 variance)")],
+            [p_cell("Trial Balance Equilibrium (SA 500)", td_bold_style), p_cell(tb_desc)],
             [p_cell("Balance Sheet Equilibrium (Schedule III)", td_bold_style), p_cell(bs_eq_desc)],
             [p_cell("Bank Reconciliation (BRS / Passbook)", td_bold_style), p_cell(brs_text)],
             [p_cell("Revenue from Operations (Turnover)", td_bold_style), p_cell(rev_display)],
@@ -726,36 +743,116 @@ class ReportExporterService:
         elements.append(Paragraph("<b>Mandatory Key Financial Ratios (Companies Act Schedule III 2021 Amendment)</b>", h3_style))
         ratios_dict = fs.get('ratios') or sec_c.get('financial_ratios_summary') or {}
 
-        def get_r(k, default="0.00"):
-            val = ratios_dict.get(k)
-            if val is not None:
-                return f"{val:.2f}" if isinstance(val, float) else str(val)
-            return default
+        def get_raw_val(keys):
+            for k in keys:
+                val = ratios_dict.get(k)
+                if val is not None:
+                    try:
+                        return float(val)
+                    except (ValueError, TypeError):
+                        pass
+            return None
 
-        cur_r = get_r('current_ratio', '2.06')
-        debt_eq_r = get_r('debt_equity_ratio', get_r('debt_equity', '0.55'))
-        dscr_r = get_r('debt_service_coverage_ratio', get_r('dscr', '0.00'))
-        roe_r = get_r('return_on_equity', get_r('roe_pct', '-37.97'))
-        inv_turn_r = get_r('inventory_turnover', get_r('inventory_turnover_ratio', '0.00'))
-        debtors_turn_r = get_r('debtors_turnover', get_r('trade_receivables_turnover_ratio', '2.65'))
-        creditors_turn_r = get_r('creditors_turnover', get_r('trade_payables_turnover_ratio', '0.77'))
-        wc_turn_r = get_r('working_capital_turnover', get_r('net_capital_turnover_ratio', '3.31'))
-        npm_r = get_r('net_profit_margin_pct', get_r('npm', '-31.92'))
-        roce_r = get_r('roce', get_r('roce_pct', '-24.51'))
+        def fmt_ratio(val, suffix="x"):
+            if val is None:
+                return "—"
+            return f"{val:.2f}{suffix}"
+
+        # 1. Current Ratio
+        v_cur = get_raw_val(['current_ratio'])
+        t_cur = fmt_ratio(v_cur, "x")
+        if v_cur is None:
+            comm_cur = "Insufficient balance sheet component data"
+        elif v_cur < 1.0:
+            comm_cur = "Severe liquidity deficit / current liabilities exceed liquid assets"
+        elif v_cur < 1.33:
+            comm_cur = "Sub-optimal liquidity buffer (below 1.33x statutory benchmark)"
+        else:
+            comm_cur = "Adequate short-term liquidity posture"
+
+        # 2. Debt to Equity
+        v_debt_eq = get_raw_val(['debt_equity_ratio', 'debt_equity', 'debt_to_equity'])
+        t_debt_eq = fmt_ratio(v_debt_eq, "x")
+        if v_debt_eq is None:
+            comm_debt_eq = "Negative net worth / equity eroded by accumulated losses"
+        elif v_debt_eq > 2.0:
+            comm_debt_eq = "Elevated solvency risk; high debt-to-equity leverage (>2.0x)"
+        else:
+            comm_debt_eq = "Within conservative solvency threshold (<=2.0x)"
+
+        # 3. DSCR
+        v_dscr = get_raw_val(['debt_service_coverage_ratio', 'dscr'])
+        t_dscr = fmt_ratio(v_dscr, "x")
+        if v_dscr is None:
+            comm_dscr = "Debt service due is nil or operating data unavailable"
+        elif v_dscr < 1.0:
+            comm_dscr = "Debt servicing deficit (<1.0x); operating cash flow insufficient"
+        else:
+            comm_dscr = "Debt service obligations adequately covered (>=1.0x)"
+
+        # 4. ROE
+        v_roe = get_raw_val(['return_on_equity', 'roe_pct', 'roe'])
+        t_roe = fmt_ratio(v_roe, "%")
+        if v_roe is None:
+            comm_roe = "Not calculable: negative equity or zero capital base"
+        elif v_roe < 0:
+            comm_roe = "Negative return on equity due to net operating loss"
+        else:
+            comm_roe = "Positive equity return derived from audited net profit"
+
+        # 5. Inventory Turnover
+        v_inv = get_raw_val(['inventory_turnover', 'inventory_turnover_ratio'])
+        t_inv = fmt_ratio(v_inv, "x")
+        comm_inv = f"Inventory turns {v_inv:.2f}x annually against material cost" if v_inv is not None else "Inventory holding/consumption not calculable from data"
+
+        # 6. Trade Receivables Turnover
+        v_rec = get_raw_val(['debtors_turnover', 'trade_receivables_turnover_ratio'])
+        t_rec = fmt_ratio(v_rec, "x")
+        comm_rec = f"Collection turnover velocity: {v_rec:.2f}x of revenue" if v_rec is not None else "Trade receivables turnover not calculable from data"
+
+        # 7. Trade Payables Turnover
+        v_pay = get_raw_val(['creditors_turnover', 'trade_payables_turnover_ratio'])
+        t_pay = fmt_ratio(v_pay, "x")
+        comm_pay = f"Vendor turnover velocity: {v_pay:.2f}x of procurement" if v_pay is not None else "Trade payables turnover not calculable from data"
+
+        # 8. Net Capital Turnover
+        v_wc = get_raw_val(['working_capital_turnover', 'net_capital_turnover_ratio'])
+        t_wc = fmt_ratio(v_wc, "x")
+        comm_wc = f"Working capital productivity: {v_wc:.2f}x" if v_wc is not None else "Negative working capital; current liabilities exceed current assets"
+
+        # 9. Net Profit Margin
+        v_npm = get_raw_val(['net_profit_margin_pct', 'npm', 'net_profit_margin'])
+        t_npm = fmt_ratio(v_npm, "%")
+        if v_npm is None:
+            comm_npm = "Revenue is nil; margin not calculable"
+        elif v_npm < 0:
+            comm_npm = "Net operating loss position / negative operational return"
+        else:
+            comm_npm = f"Net profit margin is {v_npm:.2f}% on operating turnover"
+
+        # 10. ROCE
+        v_roce = get_raw_val(['roce', 'roce_pct'])
+        t_roce = fmt_ratio(v_roce, "%")
+        if v_roce is None:
+            comm_roce = "Capital employed eroded by losses / not calculable"
+        elif v_roce < 0:
+            comm_roce = "Negative ROCE due to operating losses exceeding capital base"
+        else:
+            comm_roce = f"Operating return on capital employed is {v_roce:.2f}%"
 
         ratios_rows = [
             [p_head("Ratio Description", th_style), p_head("Statutory Formula / Components", th_style),
              p_head("FY 2025-26 Value", th_right_style), p_head("Auditor Assessment", th_style)],
-            [p_cell("1. Current Ratio", td_bold_style), p_cell("Current Assets / Current Liabilities"), p_cell(f"{cur_r}x", td_right_style), p_cell("Sound short-term liquidity posture")],
-            [p_cell("2. Debt-Equity Ratio", td_bold_style), p_cell("Total Debt / Total Shareholders' Equity"), p_cell(f"{debt_eq_r}x", td_right_style), p_cell("Within conservative solvency threshold")],
-            [p_cell("3. Debt Service Coverage Ratio (DSCR)", td_bold_style), p_cell("(PAT + Depn + Int) / Debt Service Due"), p_cell(f"{dscr_r}x", td_right_style), p_cell("Debt obligation coverage verified")],
-            [p_cell("4. Return on Equity (ROE)", td_bold_style), p_cell("PAT / Average Shareholders' Equity"), p_cell(f"{roe_r}%", td_right_style), p_cell("Derived from audited net profit")],
-            [p_cell("5. Inventory Turnover Ratio", td_bold_style), p_cell("Cost of Materials / Average Inventory"), p_cell(f"{inv_turn_r}x", td_right_style), p_cell("Operating cycle and holding scrutinized")],
-            [p_cell("6. Trade Receivables Turnover", td_bold_style), p_cell("Revenue / Average Trade Receivables"), p_cell(f"{debtors_turn_r}x", td_right_style), p_cell("Collection cycle within normal trade terms")],
-            [p_cell("7. Trade Payables Turnover", td_bold_style), p_cell("Purchases / Average Trade Payables"), p_cell(f"{creditors_turn_r}x", td_right_style), p_cell("Vendor settlement cycle monitored")],
-            [p_cell("8. Net Capital Turnover Ratio", td_bold_style), p_cell("Revenue / Working Capital"), p_cell(f"{wc_turn_r}x", td_right_style), p_cell("Working capital productivity evaluated")],
-            [p_cell("9. Net Profit Margin (%)", td_bold_style), p_cell("PAT / Revenue from Operations"), p_cell(f"{npm_r}%", td_right_style), p_cell("Bottom-line margin ground to P&L")],
-            [p_cell("10. Return on Capital Employed (ROCE)", td_bold_style), p_cell("EBIT / Capital Employed"), p_cell(f"{roce_r}%", td_right_style), p_cell("Operating efficiency on total capital")]
+            [p_cell("1. Current Ratio", td_bold_style), p_cell("Current Assets / Current Liabilities"), p_cell(t_cur, td_right_style), p_cell(comm_cur)],
+            [p_cell("2. Debt-Equity Ratio", td_bold_style), p_cell("Total Debt / Total Shareholders' Equity"), p_cell(t_debt_eq, td_right_style), p_cell(comm_debt_eq)],
+            [p_cell("3. Debt Service Coverage Ratio (DSCR)", td_bold_style), p_cell("(PAT + Depn + Int) / Debt Service Due"), p_cell(t_dscr, td_right_style), p_cell(comm_dscr)],
+            [p_cell("4. Return on Equity (ROE)", td_bold_style), p_cell("PAT / Average Shareholders' Equity"), p_cell(t_roe, td_right_style), p_cell(comm_roe)],
+            [p_cell("5. Inventory Turnover Ratio", td_bold_style), p_cell("Cost of Materials / Average Inventory"), p_cell(t_inv, td_right_style), p_cell(comm_inv)],
+            [p_cell("6. Trade Receivables Turnover", td_bold_style), p_cell("Revenue / Average Trade Receivables"), p_cell(t_rec, td_right_style), p_cell(comm_rec)],
+            [p_cell("7. Trade Payables Turnover", td_bold_style), p_cell("Purchases / Average Trade Payables"), p_cell(t_pay, td_right_style), p_cell(comm_pay)],
+            [p_cell("8. Net Capital Turnover Ratio", td_bold_style), p_cell("Revenue / Working Capital"), p_cell(t_wc, td_right_style), p_cell(comm_wc)],
+            [p_cell("9. Net Profit Margin (%)", td_bold_style), p_cell("PAT / Revenue from Operations"), p_cell(t_npm, td_right_style), p_cell(comm_npm)],
+            [p_cell("10. Return on Capital Employed (ROCE)", td_bold_style), p_cell("EBIT / Capital Employed"), p_cell(t_roce, td_right_style), p_cell(comm_roce)]
         ]
         t_ratios = Table(ratios_rows, colWidths=[145, 165, 100, 130])
         t_ratios.setStyle(TableStyle([

@@ -67,7 +67,11 @@ class SubledgerAnalyticsEngine:
             return date(2025, 4, 1)
 
         for idx, r in enumerate(aging_records, start=1):
-            raw_type = str(r.get('item_type', r.get('Classification', r.get('Type', r.get('Subledger_Type', r.get('subledger_type', 'RECEIVABLE')))))).strip().upper()
+            raw_type = str(
+                r.get('item_type') or r.get('Account Type') or r.get('Account_Type') or
+                r.get('Classification') or r.get('Type') or r.get('Subledger_Type') or
+                r.get('subledger_type') or r.get('Subledger') or 'RECEIVABLE'
+            ).strip().upper()
             if any(k in raw_type for k in ['CREDITOR', 'PAYABLE', 'VENDOR', 'SUPPLIER']):
                 item_type = 'PAYABLE'
             elif any(k in raw_type for k in ['DEBTOR', 'RECEIVABLE', 'CUSTOMER', 'CLIENT']):
@@ -75,11 +79,18 @@ class SubledgerAnalyticsEngine:
             else:
                 item_type = 'RECEIVABLE'
 
-            party = str(r.get('party_name', r.get('Party Name', r.get('Party', r.get('Counterparty_Name', r.get('Counterparty_ID', r.get('Counterparty', f"Party {idx}"))))))).strip()
+            party = str(
+                r.get('party_name') or r.get('Party Name') or r.get('Particulars') or
+                r.get('Party') or r.get('Counterparty_Name') or r.get('Counterparty_ID') or
+                r.get('Counterparty') or f"Party {idx}"
+            ).strip()
             pan = str(r.get('party_pan', r.get('Party PAN', r.get('PAN', r.get('Counterparty_PAN', ''))))).strip()
             gstin = str(r.get('party_gstin', r.get('Party GSTIN', r.get('GSTIN', r.get('Counterparty_GSTIN', ''))))).strip()
 
-            raw_msme_type = str(r.get('msme_type', r.get('MSME Type', r.get('MSME_Registered', r.get('MSME_Status', r.get('MSME_Category', 'NON_MSME')))))).strip().upper()
+            raw_msme_type = str(
+                r.get('msme_type') or r.get('MSME Type') or r.get('MSME_Registered') or
+                r.get('MSME Registered') or r.get('MSME_Status') or r.get('MSME_Category') or 'NON_MSME'
+            ).strip().upper()
             if raw_msme_type in ['MICRO', 'SMALL', 'MEDIUM']:
                 msme_type = raw_msme_type
                 is_msme = True
@@ -90,12 +101,28 @@ class SubledgerAnalyticsEngine:
                 msme_type = 'NON_MSME'
                 is_msme = bool(r.get('is_msme', False))
 
-            inv_no = str(r.get('invoice_number', r.get('Invoice No', r.get('Invoice Number', r.get('Invoice_Number', r.get('Bill No', f"INV-{idx:04d}")))))).strip()
-            inv_date = _parse_date(r.get('invoice_date', r.get('Invoice Date', r.get('Invoice_Date', r.get('Posting_Date')))), as_of_date)
-            due_date = _parse_date(r.get('due_date', r.get('Due Date', r.get('Due_Date'))), inv_date)
+            inv_no = str(
+                r.get('invoice_number') or r.get('Invoice No') or r.get('Invoice Number') or
+                r.get('Invoice_Number') or r.get('Bill No') or f"INV-{idx:04d}"
+            ).strip()
+            inv_date = _parse_date(
+                r.get('invoice_date') or r.get('Invoice Date') or r.get('Date') or
+                r.get('Posting Date') or r.get('Invoice_Date') or r.get('Posting_Date'),
+                as_of_date
+            )
+            due_date = _parse_date(
+                r.get('due_date') or r.get('Due Date') or r.get('Due_Date'),
+                inv_date
+            )
 
-            tot_amt = _clean_dec(r.get('total_amount', r.get('Gross Amount', r.get('Total Amount', r.get('Total_INR', r.get('Invoice_Amount_INR', r.get('Outstanding_INR')))))))
-            out_amt = _clean_dec(r.get('outstanding_amount', r.get('Outstanding Amount', r.get('Balance', r.get('Outstanding_INR', r.get('Outstanding_Amount_INR', tot_amt))))))
+            tot_amt = _clean_dec(
+                r.get('total_amount') or r.get('Gross Amount') or r.get('Total Amount') or
+                r.get('Total_INR') or r.get('Invoice_Amount_INR') or r.get('Outstanding_INR')
+            )
+            out_amt = _clean_dec(
+                r.get('outstanding_amount') or r.get('Outstanding Amount') or r.get('Outstanding_INR') or
+                r.get('Balance') or r.get('Outstanding_Amount_INR') or tot_amt
+            )
             if tot_amt == Decimal('0.00') and out_amt > Decimal('0.00'):
                 tot_amt = out_amt
             elif out_amt == Decimal('0.00') and tot_amt > Decimal('0.00'):

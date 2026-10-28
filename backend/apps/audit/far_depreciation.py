@@ -48,6 +48,8 @@ class FixedAssetAuditEngine:
         seen_ids = set()
         seen_combos = {} # (name, cost, date) -> asset_id
         duplicates_detected = []
+        zero_cost_detected = []
+        invalid_dates_detected = []
         discrepancies = []
 
         total_cost = Decimal('0.00')
@@ -87,8 +89,16 @@ class FixedAssetAuditEngine:
             else:
                 category = cat_raw
             
-            raw_cost = get_field(rec, ['cost', 'Capitalized_Cost_INR', 'original_cost', 'Original Cost', 'Gross Block (INR)', 'Gross Block', 'Cost']).replace(',', '').replace('₹', '').replace(' ', '').strip()
+            raw_cost = get_field(rec, [
+                'cost', 'Capitalized_Cost_INR', 'original_cost', 'Original Cost',
+                'Gross Block (INR)', 'Gross Block', 'Cost', 'Purchase Cost', 'Purchase_Cost',
+                'Purchase Price', 'Gross Value', 'Gross_Value', 'Acquisition Cost',
+                'Acquisition_Cost', 'Cost of Asset', 'Total Cost', 'Asset Cost'
+            ]).replace(',', '').replace('₹', '').replace(' ', '').strip()
             cost = Decimal(raw_cost) if raw_cost else Decimal('0.00')
+
+            if cost <= Decimal('0.00'):
+                zero_cost_detected.append({'asset_id': raw_id, 'name': name})
 
             raw_acc = get_field(rec, ['accumulated_depreciation', 'Opening_Accumulated_Depreciation_INR', 'Accumulated Depreciation', 'Opening Dep', 'Accumulated Dep']).replace(',', '').replace('₹', '').replace(' ', '').strip()
             acc_dep = Decimal(raw_acc) if raw_acc else Decimal('0.00')
@@ -130,6 +140,14 @@ class FixedAssetAuditEngine:
             else:
                 put_to_use = acq_date
 
+            # Date sequence and reporting period validation
+            if acq_date > fy_end:
+                invalid_dates_detected.append({'asset_id': raw_id, 'reason': f"Acquisition date {acq_date} occurs after FY end {fy_end}"})
+            if put_to_use > fy_end:
+                invalid_dates_detected.append({'asset_id': raw_id, 'reason': f"Put-to-use date {put_to_use} occurs after FY end {fy_end}"})
+            if put_to_use < acq_date:
+                invalid_dates_detected.append({'asset_id': raw_id, 'reason': f"Put-to-use date {put_to_use} precedes acquisition date {acq_date}"})
+
             # Duplicate ID check
             is_dup = False
             if raw_id in seen_ids:
@@ -168,24 +186,44 @@ class FixedAssetAuditEngine:
             else:
                 sec_32_rate = cls.SECTION_32_RATES.get(category, Decimal('15.0'))
 
-            # Recalculate Schedule II Depreciation (SLM: (Cost - 5% Salvage) / Useful life)
+            # Parse residual value / percentage
+            raw_res_pct = get_field(rec, ['residual_pct', 'Residual_Pct', 'Residual %', 'Residual Percentage', 'Scrap %', 'Scrap_Pct'])
+            raw_res_val = get_field(rec, ['residual_value', 'Residual_Value', 'Residual Value', 'Scrap Value', 'Scrap_Value', 'Salvage Value'])
+            if raw_res_pct:
+                try:
+                    residual_pct = Decimal(str(raw_res_pct).replace('%', '').strip())
+                    salvage_value = (cost * (residual_pct / Decimal('100.0'))).quantize(Decimal('0.01'))
+                except Exception:
+                    residual_pct = Decimal('5.00')
+                    salvage_value = (cost * Decimal('0.05')).quantize(Decimal('0.01'))
+            elif raw_res_val:
+                try:
+                    salvage_value = Decimal(str(raw_res_val).replace(',', '').replace('₹', '').strip()).quantize(Decimal('0.01'))
+                    residual_pct = ((salvage_value / cost) * Decimal('100.0')).quantize(Decimal('0.01')) if cost > Decimal('0.00') else Decimal('5.00')
+                except Exception:
+                    residual_pct = Decimal('5.00')
+                    salvage_value = (cost * Decimal('0.05')).quantize(Decimal('0.01'))
+            else:
+                residual_pct = Decimal('5.00')
+                salvage_value = (cost * Decimal('0.05')).quantize(Decimal('0.01'))
+
+            dep_method = get_field(rec, ['depreciation_method', 'Depreciation_Method', 'Depreciation Method', 'Method', 'method'], 'SLM').upper()
+
+            # Recalculate Schedule II Depreciation
             total_days_in_fy = (fy_end - fy_start).days + 1
             days_in_fy = Decimal(str(max(1, total_days_in_fy)))
 
             if useful_life <= Decimal('0.0'):
                 useful_life = cls.SCHEDULE_II_USEFUL_LIVES.get(category, Decimal('5.0'))
 
-            salvage_value = (cost * Decimal('0.05')).quantize(Decimal('0.01'))
             max_depreciable_life = max(Decimal('0.00'), cost - salvage_value)
             remaining_headroom = max(Decimal('0.00'), max_depreciable_life - acc_dep)
 
             if put_to_use > fy_end:
-                # Capitalized after the current financial year
                 proportion = Decimal('0.0')
                 computed_sch_ii_dep = Decimal('0.00')
                 computed_sec_32_dep = Decimal('0.00')
             elif remaining_headroom <= Decimal('0.00'):
-                # Asset has already reached statutory 5% scrap value
                 proportion = Decimal('0.0')
                 computed_sch_ii_dep = Decimal('0.00')
                 computed_sec_32_dep = Decimal('0.00')
@@ -196,8 +234,13 @@ class FixedAssetAuditEngine:
                 else:
                     proportion = Decimal('1.0')
 
-                annual_slm_dep = max_depreciable_life / useful_life
-                computed_sch_ii_dep = min(remaining_headroom, (annual_slm_dep * proportion).quantize(Decimal('0.01')))
+                if 'WDV' in dep_method:
+                    opening_wdv = max(Decimal('0.00'), cost - acc_dep)
+                    annual_wdv = (opening_wdv * (sec_32_rate / Decimal('100.0')) * proportion).quantize(Decimal('0.01'))
+                    computed_sch_ii_dep = min(remaining_headroom, annual_wdv)
+                else:
+                    annual_slm_dep = max_depreciable_life / useful_life
+                    computed_sch_ii_dep = min(remaining_headroom, (annual_slm_dep * proportion).quantize(Decimal('0.01')))
 
                 # Recalculate Income Tax Section 32 Depreciation
                 if put_to_use >= fy_start:
@@ -206,7 +249,6 @@ class FixedAssetAuditEngine:
                     effective_sec_32_rate = (sec_32_rate / Decimal('100.0')) * half_rate_factor
                     computed_sec_32_dep = (cost * effective_sec_32_rate).quantize(Decimal('0.01'))
                 else:
-                    # Previous years asset: Section 32 rate on opening WDV
                     effective_sec_32_rate = sec_32_rate / Decimal('100.0')
                     opening_wdv = max(Decimal('0.00'), cost - acc_dep)
                     computed_sec_32_dep = (opening_wdv * effective_sec_32_rate).quantize(Decimal('0.01'))
@@ -228,7 +270,7 @@ class FixedAssetAuditEngine:
                 put_to_use_date=put_to_use,
                 original_cost=cost,
                 useful_life_years=useful_life,
-                residual_pct=Decimal('5.00'),
+                residual_pct=residual_pct,
                 sch_ii_depreciation=computed_sch_ii_dep,
                 sec_32_rate=sec_32_rate,
                 sec_32_depreciation=computed_sec_32_dep,
@@ -253,6 +295,34 @@ class FixedAssetAuditEngine:
                 amount_involved=Decimal('0.00'),
                 explanation=f"Identified {len(duplicates_detected)} duplicate asset records or duplicate asset identifiers in Fixed Asset Register.",
                 recommended_action="Physically verify physical tag numbers and reconcile FAR against purchase invoices to eliminate redundant capitalizations.",
+                source_reference="FAR_Register"
+            )
+
+        # Flag zero-cost assets in Exceptions
+        if zero_cost_detected:
+            ExceptionItem.objects.create(
+                engagement=engagement,
+                rule_code="RULE_FAR_ZERO_COST",
+                title=f"Assets Recorded with Zero Cost in FAR ({len(zero_cost_detected)} items)",
+                category="ACCURACY",
+                severity=ExceptionSeverity.HIGH,
+                amount_involved=Decimal('0.00'),
+                explanation=f"{len(zero_cost_detected)} assets are recorded with zero acquisition cost in the Fixed Asset Register.",
+                recommended_action="Inspect capitalization vouchers and vendor purchase invoices to establish actual historical cost.",
+                source_reference="FAR_Register"
+            )
+
+        # Flag invalid dates / reporting-period mismatches in Exceptions
+        if invalid_dates_detected:
+            ExceptionItem.objects.create(
+                engagement=engagement,
+                rule_code="RULE_FAR_INVALID_DATE",
+                title=f"Asset Date Sequencing or Reporting Period Anomaly ({len(invalid_dates_detected)} items)",
+                category="ACCURACY",
+                severity=ExceptionSeverity.HIGH,
+                amount_involved=Decimal('0.00'),
+                explanation=f"Identified {len(invalid_dates_detected)} date discrepancies in FAR (future capitalization dates or put-to-use preceding acquisition).",
+                recommended_action="Verify asset commissioning certificates and capitalization dates against plant inspection records.",
                 source_reference="FAR_Register"
             )
 
@@ -323,6 +393,22 @@ class FixedAssetAuditEngine:
             'book_depreciation': str(book_dep),
             'depreciation_variance': str(dep_variance),
             'duplicate_candidates_count': len(duplicates_detected),
+            'zero_cost_assets_count': len(zero_cost_detected),
+            'invalid_dates_count': len(invalid_dates_detected),
             'assets_with_variance_count': len(assets_with_variance),
-            'is_depreciation_reconciled': dep_variance <= Decimal('100.00')
+            'is_depreciation_reconciled': dep_variance <= Decimal('100.00'),
+            'asset_wise_depreciation': [
+                {
+                    'asset_id': a.asset_id,
+                    'name': a.asset_name,
+                    'cost': str(a.original_cost),
+                    'residual_pct': str(a.residual_pct),
+                    'useful_life': str(a.useful_life_years),
+                    'sch_ii_depreciation': str(a.sch_ii_depreciation),
+                    'sec_32_depreciation': str(a.sec_32_depreciation),
+                    'booked_depreciation': str(a.booked_depreciation),
+                    'depreciation_variance': str(a.depreciation_variance)
+                }
+                for a in created_assets
+            ]
         }

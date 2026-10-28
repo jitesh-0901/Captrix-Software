@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional
@@ -27,14 +28,17 @@ class BankReconciliationEngine:
         cashbook_items: list of dicts with: date, ref, desc, amount, type ('DEPOSIT', 'WITHDRAWAL')
         bank_items: list of dicts with: date, ref, desc, amount, type ('DEPOSIT', 'WITHDRAWAL')
         """
+        bal_books = starting_cashbook_balance if starting_cashbook_balance is not None else Decimal('0.00')
+        bal_stmt = actual_statement_balance if actual_statement_balance is not None else Decimal('0.00')
+
         recon_run = ReconciliationRun.objects.create(
             engagement=engagement,
             recon_type=ReconciliationType.BANK,
             status=ReconciliationStatus.IN_PROGRESS,
             as_of_date=as_of_date,
             date_tolerance_days=date_tolerance_days,
-            balance_per_books=starting_cashbook_balance,
-            balance_per_statement=actual_statement_balance,
+            balance_per_books=bal_books,
+            balance_per_statement=bal_stmt,
             total_source_items=len(cashbook_items),
             total_target_items=len(bank_items)
         )
@@ -44,14 +48,27 @@ class BankReconciliationEngine:
         created_cb_items = []
         created_bank_items = []
 
+        def _parse_item_date(val):
+            if isinstance(val, date):
+                return val
+            if isinstance(val, datetime):
+                return val.date()
+            if not val:
+                return date(2025, 4, 1)
+            v_str = str(val).strip().split()[0]
+            for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y'):
+                try:
+                    return datetime.strptime(v_str, fmt).date()
+                except ValueError:
+                    pass
+            return date(2025, 4, 1)
+
         # 1. Create persistent items
         for cb in cashbook_items:
             amt = Decimal(str(cb.get('amount', 0)))
             dr = amt if cb.get('type') == 'DEPOSIT' else Decimal('0.00')
             cr = amt if cb.get('type') == 'WITHDRAWAL' else Decimal('0.00')
-            d = cb.get('date')
-            if isinstance(d, str):
-                d = datetime.strptime(d, '%Y-%m-%d').date()
+            d = _parse_item_date(cb.get('date'))
 
             created_cb_items.append(ReconciliationItem(
                 reconciliation_run=recon_run,
@@ -71,9 +88,7 @@ class BankReconciliationEngine:
             amt = Decimal(str(b.get('amount', 0)))
             cr = amt if b.get('type') == 'DEPOSIT' else Decimal('0.00')   # In bank statement, deposit is Credit
             dr = amt if b.get('type') == 'WITHDRAWAL' else Decimal('0.00') # In bank statement, withdrawal is Debit
-            d = b.get('date')
-            if isinstance(d, str):
-                d = datetime.strptime(d, '%Y-%m-%d').date()
+            d = _parse_item_date(b.get('date'))
 
             created_bank_items.append(ReconciliationItem(
                 reconciliation_run=recon_run,
@@ -281,7 +296,10 @@ class BankReconciliationEngine:
             - direct_debits_by_bank
         )
 
-        unreconciled_diff = abs(reconciled_statement_balance - actual_statement_balance)
+        if actual_statement_balance is not None:
+            unreconciled_diff = abs(reconciled_statement_balance - actual_statement_balance)
+        else:
+            unreconciled_diff = Decimal('0.00')
         recon_run.timing_differences_amount = (
             cheques_issued_not_presented
             - cheques_deposited_not_cleared
@@ -293,10 +311,18 @@ class BankReconciliationEngine:
         recon_run.unmatched_count = (len(created_cb_items) - len(matched_cashbook_ids)) + (len(created_bank_items) - len(matched_bank_ids))
         recon_run.unresolved_count = unresolved_count
 
+        matched_amount = sum((cb.amount for cb in created_cb_items if cb.is_matched), Decimal('0.00'))
+        unmatched_cb_payments = [cb for cb in created_cb_items if not cb.is_matched and cb.credit_amount > Decimal('0.00')]
+        unmatched_cb_deposits = [cb for cb in created_cb_items if not cb.is_matched and cb.debit_amount > Decimal('0.00')]
+        unmatched_b_debits = [b for b in created_bank_items if not b.is_matched and b.debit_amount > Decimal('0.00')]
+        unmatched_b_credits = [b for b in created_bank_items if not b.is_matched and b.credit_amount > Decimal('0.00')]
+
         # Fail-closed audit status:
-        # Arithmetically balanced only if difference is zero.
-        # But if stale cheques exist (>90 days old) or unresolved ambiguous suggestions exist, audit status MUST be REVIEW_REQUIRED.
+        # Arithmetically balanced only if difference is zero and inputs were complete.
+        # But if stale cheques exist (>90 days old), unresolved items exist, or data missing, audit status MUST be REVIEW_REQUIRED.
+        has_missing_data = (len(cashbook_items) == 0 or len(bank_items) == 0 or actual_statement_balance is None)
         has_audit_concerns = (
+            has_missing_data or
             unreconciled_diff >= Decimal('0.01') or
             unresolved_count > 0 or
             stale_cheques_count > 0 or
@@ -307,6 +333,16 @@ class BankReconciliationEngine:
             recon_run.status = ReconciliationStatus.BALANCED
         else:
             recon_run.status = ReconciliationStatus.REVIEW_REQUIRED
+
+        review_reasons = []
+        if has_missing_data:
+            review_reasons.append("Bank reconciliation data incomplete; cashbook entries or bank statement balance missing.")
+        if stale_cheques_count > 0:
+            review_reasons.append(f"{stale_cheques_count} stale cheques (>90 days old) totaling ₹{stale_cheques_amount:,.2f} require management write-back under NI Act Sec 138.")
+        if stale_deposits_count > 0:
+            review_reasons.append(f"{stale_deposits_count} stale deposits (>90 days old) totaling ₹{stale_deposits_amount:,.2f} require dishonour review.")
+        if unreconciled_diff >= Decimal('0.01'):
+            review_reasons.append(f"Arithmetic variance of ₹{unreconciled_diff:,.2f} between cashbook bridge and bank statement.")
 
         recon_run.summary_data = {
             'starting_cashbook_balance': str(starting_cashbook_balance),
@@ -321,19 +357,32 @@ class BankReconciliationEngine:
             'direct_credits_by_bank': str(direct_credits_by_bank),
             'direct_debits_by_bank': str(direct_debits_by_bank),
             'computed_statement_balance': str(reconciled_statement_balance),
-            'actual_statement_balance': str(actual_statement_balance),
+            'actual_statement_balance': str(actual_statement_balance if actual_statement_balance is not None else '0.00'),
             'unreconciled_variance': str(unreconciled_diff),
-            'arithmetic_balanced': (unreconciled_diff < Decimal('0.01')),
+            'arithmetic_balanced': (unreconciled_diff < Decimal('0.01') and not has_missing_data),
             'date_tolerance_days': date_tolerance_days,
             'is_fully_reconciled': (not has_audit_concerns),
             'unresolved_items_count': unresolved_count,
             'matched_items_count': len(matched_cashbook_ids),
+            'matched_items_amount': str(matched_amount),
             'unmatched_items_count': recon_run.unmatched_count,
-            'review_required_reason': (
-                f"{stale_cheques_count} stale cheques (>90 days old) totaling ₹{stale_cheques_amount:,.2f} require management write-back under NI Act Sec 138. " if stale_cheques_count > 0 else ""
-            ) + (
-                f"Arithmetic variance of ₹{unreconciled_diff:,.2f} between cashbook and bank statement. " if unreconciled_diff >= Decimal('0.01') else ""
-            )
+            'ledger_only_transactions': {
+                'unpresented_cheques_count': len(unmatched_cb_payments),
+                'unpresented_cheques_amount': str(sum((c.amount for c in unmatched_cb_payments), Decimal('0.00'))),
+                'uncleared_deposits_count': len(unmatched_cb_deposits),
+                'uncleared_deposits_amount': str(sum((c.amount for c in unmatched_cb_deposits), Decimal('0.00'))),
+                'total_count': len(unmatched_cb_payments) + len(unmatched_cb_deposits),
+                'total_amount': str(sum((c.amount for c in unmatched_cb_payments + unmatched_cb_deposits), Decimal('0.00')))
+            },
+            'bank_only_transactions': {
+                'bank_service_fees_count': len(unmatched_b_debits),
+                'bank_service_fees_amount': str(sum((b.amount for b in unmatched_b_debits), Decimal('0.00'))),
+                'customer_receipts_count': len(unmatched_b_credits),
+                'customer_receipts_amount': str(sum((b.amount for b in unmatched_b_credits), Decimal('0.00'))),
+                'total_count': len(unmatched_b_debits) + len(unmatched_b_credits),
+                'total_amount': str(sum((b.amount for b in unmatched_b_debits + unmatched_b_credits), Decimal('0.00')))
+            },
+            'review_required_reason': " ".join(review_reasons)
         }
         recon_run.save()
 
@@ -345,6 +394,11 @@ class GstItcReconciliationEngine:
     def execute_reconciliation(engagement, as_of_date, purchase_items: list[dict], gstr2b_items: list[dict]):
         """
         Reconciles Purchase Register against GSTR-2B for GST ITC compliance (Rule 36(4) / Sec 16(2)(aa)).
+        Performs bidirectional invoice-level matching across taxable values and tax amounts:
+        1. Purchase Register invoices matched against GSTR-2B
+        2. GSTR-2B invoices matched against Purchase Register
+        3. Identifies taxable value differences, tax differences, and missing invoices in either source
+        4. Fails closed (status = REVIEW_REQUIRED) if any discrepancy or missing invoice exists.
         """
         recon_run = ReconciliationRun.objects.create(
             engagement=engagement,
@@ -354,63 +408,203 @@ class GstItcReconciliationEngine:
             total_target_items=len(gstr2b_items)
         )
 
+        def _clean_str(val):
+            return str(val or '').strip().upper()
+
+        def _norm_inv(val):
+            return re.sub(r'[^A-Z0-9]', '', _clean_str(val)).lstrip('0')
+
+        def _parse_dec(val):
+            if val is None:
+                return Decimal('0.00')
+            clean = str(val).replace(',', '').replace('₹', '').replace(' ', '').strip()
+            try:
+                return Decimal(clean) if clean else Decimal('0.00')
+            except Exception:
+                return Decimal('0.00')
+
         matched_count = 0
         mismatch_tax_count = 0
+        mismatch_taxable_count = 0
         missing_in_2b_count = 0
+        missing_in_books_count = 0
+
+        total_taxable_books = Decimal('0.00')
+        total_taxable_2b = Decimal('0.00')
         total_itc_books = Decimal('0.00')
         total_itc_2b = Decimal('0.00')
 
+        # Index GSTR-2B items by (norm_gstin, norm_inv) and fallback by norm_inv
         gstr2b_dict = {}
-        for item in gstr2b_items:
-            gstin = str(item.get('gstin', '')).strip().upper()
-            inv = str(item.get('invoice_no', '')).strip().upper()
-            gstr2b_dict[(gstin, inv)] = item
-            total_itc_2b += Decimal(str(item.get('itc_amount', 0)))
+        gstr2b_by_inv = {}
+        matched_2b_keys = set()
 
+        for idx, item in enumerate(gstr2b_items):
+            gstin = _clean_str(item.get('gstin', item.get('supplier_gstin', item.get('GSTIN', ''))))
+            raw_inv = _clean_str(item.get('invoice_no', item.get('invoice_number', item.get('Invoice No', ''))))
+            norm_inv = _norm_inv(raw_inv)
+
+            taxable_val = _parse_dec(item.get('taxable_value', item.get('taxable_amount', item.get('Taxable Value', 0))))
+            itc_val = _parse_dec(item.get('itc_amount', item.get('tax_amount', item.get('gst_amount', item.get('Tax Amount', 0)))))
+
+            total_taxable_2b += taxable_val
+            total_itc_2b += itc_val
+
+            item_record = {
+                'idx': idx,
+                'raw_item': item,
+                'gstin': gstin,
+                'invoice_no': raw_inv,
+                'norm_inv': norm_inv,
+                'taxable_value': taxable_val,
+                'itc_amount': itc_val,
+                'date': item.get('date', item.get('invoice_date')),
+                'vendor_name': item.get('vendor_name', item.get('trade_name', item.get('legal_name', '')))
+            }
+            if gstin and norm_inv:
+                gstr2b_dict[(gstin, norm_inv)] = item_record
+            if norm_inv:
+                gstr2b_by_inv[norm_inv] = item_record
+
+        # Reconcile Purchase Register items
+        created_recon_items = []
         for p in purchase_items:
-            gstin = str(p.get('gstin', '')).strip().upper()
-            inv = str(p.get('invoice_no', '')).strip().upper()
-            tax_in_books = Decimal(str(p.get('itc_amount', 0)))
+            gstin = _clean_str(p.get('gstin', p.get('supplier_gstin', p.get('GSTIN', ''))))
+            raw_inv = _clean_str(p.get('invoice_no', p.get('invoice_number', p.get('Invoice No', ''))))
+            norm_inv = _norm_inv(raw_inv)
+
+            taxable_in_books = _parse_dec(p.get('taxable_value', p.get('taxable_amount', p.get('Taxable Value', 0))))
+            tax_in_books = _parse_dec(p.get('itc_amount', p.get('tax_amount', p.get('gst_amount', p.get('Tax Amount', 0)))))
+
+            total_taxable_books += taxable_in_books
             total_itc_books += tax_in_books
 
-            if (gstin, inv) in gstr2b_dict:
-                item_2b = gstr2b_dict[(gstin, inv)]
-                tax_in_2b = Decimal(str(item_2b.get('itc_amount', 0)))
-                diff = abs(tax_in_books - tax_in_2b)
-                if diff < Decimal('1.00'):
+            matched_2b_item = None
+            matched_key = None
+
+            if gstin and norm_inv and (gstin, norm_inv) in gstr2b_dict:
+                matched_key = (gstin, norm_inv)
+                matched_2b_item = gstr2b_dict[matched_key]
+            elif norm_inv and norm_inv in gstr2b_by_inv:
+                matched_key = norm_inv
+                matched_2b_item = gstr2b_by_inv[matched_key]
+
+            if matched_2b_item:
+                matched_2b_keys.add(matched_2b_item['idx'])
+                taxable_diff = abs(taxable_in_books - matched_2b_item['taxable_value'])
+                tax_diff = abs(tax_in_books - matched_2b_item['itc_amount'])
+
+                has_taxable_mismatch = (taxable_diff >= Decimal('1.00'))
+                has_tax_mismatch = (tax_diff >= Decimal('1.00'))
+
+                if not has_taxable_mismatch and not has_tax_mismatch:
                     status_cat = 'EXACT_MATCH'
                     matched_count += 1
+                    notes = f"Exact match with GSTR-2B invoice {matched_2b_item['invoice_no']} (Taxable ₹{taxable_in_books:,.2f}, Tax ₹{tax_in_books:,.2f})"
+                elif has_taxable_mismatch and has_tax_mismatch:
+                    status_cat = 'TAXABLE_AND_TAX_MISMATCH'
+                    mismatch_taxable_count += 1
+                    mismatch_tax_count += 1
+                    notes = f"Taxable variance ₹{taxable_diff:,.2f} and Tax variance ₹{tax_diff:,.2f} vs GSTR-2B"
+                elif has_taxable_mismatch:
+                    status_cat = 'TAXABLE_VALUE_MISMATCH'
+                    mismatch_taxable_count += 1
+                    notes = f"Taxable value variance of ₹{taxable_diff:,.2f} vs GSTR-2B"
                 else:
                     status_cat = 'TAX_AMOUNT_MISMATCH'
                     mismatch_tax_count += 1
+                    notes = f"ITC tax variance of ₹{tax_diff:,.2f} vs GSTR-2B"
+
+                created_recon_items.append(ReconciliationItem(
+                    reconciliation_run=recon_run,
+                    source_type='PURCHASE_REGISTER',
+                    item_date=p.get('date', p.get('invoice_date')),
+                    reference_number=raw_inv,
+                    party_name=p.get('vendor_name', ''),
+                    amount=tax_in_books,
+                    timing_category=status_cat,
+                    is_matched=(status_cat == 'EXACT_MATCH'),
+                    is_approved=(status_cat == 'EXACT_MATCH'),
+                    match_notes=notes
+                ))
             else:
                 status_cat = 'MISSING_IN_GSTR_2B'
                 missing_in_2b_count += 1
+                created_recon_items.append(ReconciliationItem(
+                    reconciliation_run=recon_run,
+                    source_type='PURCHASE_REGISTER',
+                    item_date=p.get('date', p.get('invoice_date')),
+                    reference_number=raw_inv,
+                    party_name=p.get('vendor_name', ''),
+                    amount=tax_in_books,
+                    timing_category=status_cat,
+                    is_matched=False,
+                    is_approved=False,
+                    match_notes=f"Invoice missing from GSTR-2B; ITC of ₹{tax_in_books:,.2f} restricted under CGST Sec 16(2)(aa) & Rule 36(4)"
+                ))
 
-            ReconciliationItem.objects.create(
-                reconciliation_run=recon_run,
-                source_type='PURCHASE_REGISTER',
-                item_date=p.get('date'),
-                reference_number=inv,
-                party_name=p.get('vendor_name', ''),
-                amount=tax_in_books,
-                timing_category=status_cat,
-                is_matched=(status_cat == 'EXACT_MATCH'),
-                is_approved=(status_cat == 'EXACT_MATCH')
-            )
+        # Check for unbooked GSTR-2B invoices (appearing in 2B but missing from Purchase Register)
+        for idx, item in enumerate(gstr2b_items):
+            if idx not in matched_2b_keys:
+                raw_inv = _clean_str(item.get('invoice_no', item.get('invoice_number', item.get('Invoice No', ''))))
+                itc_val = _parse_dec(item.get('itc_amount', item.get('tax_amount', item.get('gst_amount', item.get('Tax Amount', 0)))))
+                taxable_val = _parse_dec(item.get('taxable_value', item.get('taxable_amount', item.get('Taxable Value', 0))))
+                missing_in_books_count += 1
+
+                created_recon_items.append(ReconciliationItem(
+                    reconciliation_run=recon_run,
+                    source_type='GSTR_2B',
+                    item_date=item.get('date', item.get('invoice_date')),
+                    reference_number=raw_inv,
+                    party_name=item.get('vendor_name', item.get('supplier_name', '')),
+                    amount=itc_val,
+                    timing_category='MISSING_IN_PURCHASE_REGISTER',
+                    is_matched=False,
+                    is_approved=False,
+                    match_notes=f"Appears in GSTR-2B but missing from purchase register (Taxable ₹{taxable_val:,.2f}, Tax ₹{itc_val:,.2f})"
+                ))
+
+        if created_recon_items:
+            ReconciliationItem.objects.bulk_create(created_recon_items)
+
+        taxable_variance = abs(total_taxable_books - total_taxable_2b)
+        itc_variance = abs(total_itc_books - total_itc_2b)
+        total_exceptions = mismatch_tax_count + mismatch_taxable_count + missing_in_2b_count + missing_in_books_count
+
+        has_data = len(purchase_items) > 0 or len(gstr2b_items) > 0
+        is_balanced = (has_data and total_exceptions == 0 and itc_variance < Decimal('1.00') and taxable_variance < Decimal('1.00'))
 
         recon_run.matched_count = matched_count
-        recon_run.unmatched_count = mismatch_tax_count + missing_in_2b_count
-        recon_run.unreconciled_difference = abs(total_itc_books - total_itc_2b)
-        recon_run.status = ReconciliationStatus.BALANCED if (recon_run.unreconciled_difference < Decimal('1.00') and missing_in_2b_count == 0) else ReconciliationStatus.REVIEW_REQUIRED
+        recon_run.unmatched_count = total_exceptions
+        recon_run.unreconciled_difference = itc_variance
+        recon_run.status = ReconciliationStatus.BALANCED if is_balanced else ReconciliationStatus.REVIEW_REQUIRED
+
         recon_run.summary_data = {
+            'total_taxable_per_books': str(total_taxable_books),
+            'total_taxable_per_gstr2b': str(total_taxable_2b),
+            'taxable_variance': str(taxable_variance),
             'total_itc_per_books': str(total_itc_books),
             'total_itc_per_gstr2b': str(total_itc_2b),
-            'itc_variance': str(abs(total_itc_books - total_itc_2b)),
+            'itc_variance': str(itc_variance),
             'matched_invoices': matched_count,
             'mismatched_tax_invoices': mismatch_tax_count,
+            'mismatched_taxable_invoices': mismatch_taxable_count,
             'missing_in_gstr_2b_invoices': missing_in_2b_count,
-            'rule_36_4_risk': missing_in_2b_count > 0
+            'missing_in_purchase_register_invoices': missing_in_books_count,
+            'has_sufficient_data': has_data,
+            'rule_36_4_risk': missing_in_2b_count > 0,
+            'is_fully_reconciled': is_balanced,
+            'review_required_reason': (
+                f"{missing_in_2b_count} invoices missing from GSTR-2B (ITC at risk under Rule 36(4)); " if missing_in_2b_count > 0 else ""
+            ) + (
+                f"{missing_in_books_count} invoices in GSTR-2B missing from books; " if missing_in_books_count > 0 else ""
+            ) + (
+                f"{mismatch_tax_count} invoices with tax amount mismatches; " if mismatch_tax_count > 0 else ""
+            ) + (
+                f"Taxable variance of ₹{taxable_variance:,.2f}; " if taxable_variance >= Decimal('1.00') else ""
+            ) + (
+                "Purchase Register or GSTR-2B datasets not uploaded." if not has_data else ""
+            )
         }
         recon_run.save()
         return recon_run

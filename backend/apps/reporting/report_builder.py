@@ -334,7 +334,7 @@ class ConsolidatedAuditReportBuilder:
         # Full Balance Sheet Equilibrium Cross-Check
         total_equity_and_liabilities = equity_total + liabilities_total
         bs_variance = abs(assets_total - total_equity_and_liabilities)
-        bs_is_balanced = (bs_variance < Decimal('1.00')) if fin_statements else False
+        bs_is_balanced = (bs_variance < Decimal('0.005')) if fin_statements else False
         bs_status = "BALANCED (Total Assets = Total Equity & Liabilities)" if (bs_is_balanced and fin_statements) else (
             f"UNBALANCED (Variance: ₹{bs_variance:,.2f})" if fin_statements else "NOT_COMPUTED"
         )
@@ -479,6 +479,11 @@ class ConsolidatedAuditReportBuilder:
         else:
             ratios_list = []
             ratios_summary = {}
+
+        if fin_statements and isinstance(fin_statements.get('ratios'), dict):
+            for rk, rv in fin_statements['ratios'].items():
+                if rk not in ratios_summary or ratios_summary[rk] is None or ratios_summary[rk] == 0.0:
+                    ratios_summary[rk] = rv
 
         section_c = {
             'section_code': 'SEC-C',

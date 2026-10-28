@@ -1057,17 +1057,12 @@ class AutomationOrchestratorService:
                 for idx, r in enumerate(gl_records, start=1):
                     gdata = r.normalized_data or r.raw_data
                     acc_code = str(gdata.get('Account_Code', gdata.get('Account Code', ''))).strip()
-                    acc_name = str(gdata.get('Account_Name', gdata.get('Account Name', ''))).lower()
-                    src_type = str(gdata.get('Source_Type', gdata.get('Source Type', gdata.get('Account Type', '')))).lower().strip()
+                    acc_name = str(gdata.get('Account_Name', gdata.get('Account Name', gdata.get('Particulars', '')))).lower().strip()
 
                     is_bank_acc = (
                         acc_code == '100100'
                         or 'main bank' in acc_name
                         or ('bank' in acc_name and not acc_code.startswith(('2', '3', '4', '5')))
-                        or src_type == 'bank'
-                        or 'bank' in src_type
-                        or 'contra' in src_type
-                        or 'cheque' in src_type
                     )
                     if is_bank_acc:
                         dr_amt = parse_indian_amount(gdata.get('Debit_INR') or gdata.get('Debit') or gdata.get('Debit (INR)')) or Decimal('0.00')
@@ -1076,14 +1071,15 @@ class AutomationOrchestratorService:
                         amt = dr_amt if is_dep else cr_amt
                         if amt > Decimal('0.00'):
                             b_ref = (
+                                gdata.get('Chq / Ref No_2') or gdata.get('Chq / Ref No') or
                                 gdata.get('Document_Ref') or gdata.get('Document Ref') or
-                                gdata.get('Chq / Ref No') or gdata.get('Ref No') or
+                                gdata.get('Ref No') or gdata.get('Cheque No') or
                                 gdata.get('Voucher_No') or gdata.get('Voucher No') or f"GL-{idx}"
                             )
                             book_items.append({
-                                'date': gdata.get('Posting_Date') or gdata.get('Date', '2025-04-01'),
+                                'date': gdata.get('Posting Date') or gdata.get('Posting_Date') or gdata.get('Date', '2025-04-01'),
                                 'ref': str(b_ref),
-                                'desc': str(gdata.get('Narration') or gdata.get('Counterparty') or f"GL Entry {idx}"),
+                                'desc': str(gdata.get('Description') or gdata.get('Narration') or gdata.get('Counterparty') or f"GL Entry {idx}"),
                                 'amount': str(amt),
                                 'type': 'DEPOSIT' if is_dep else 'WITHDRAWAL'
                             })
@@ -1096,24 +1092,25 @@ class AutomationOrchestratorService:
             ).first()
             starting_bal = Decimal('0.00')
             if bank_acc and bank_acc.closing_balance > Decimal('0.00'):
-                starting_bal = bank_acc.closing_balance
+                starting_bal = bank_acc.closing_balance if bank_acc.closing_balance_type == 'Dr' else -bank_acc.closing_balance
             else:
                 tb = engagement.trial_balances.first()
                 if tb and tb.accounts_snapshot:
                     for acc in tb.accounts_snapshot:
                         if acc.get('code') == '100100' or 'bank' in str(acc.get('name', '')).lower():
-                            s_bal = parse_indian_amount(acc.get('closing_balance') or acc.get('debit'))
+                            s_bal = parse_indian_amount(acc.get('net_balance') or acc.get('closing_balance') or acc.get('debit'))
                             if s_bal:
                                 starting_bal = s_bal
                                 break
 
-            actual_statement_bal = starting_bal
+            actual_statement_bal = None
             if bank_items and records.exists():
-                last_rec = records.last()
-                last_data = last_rec.normalized_data or last_rec.raw_data
-                last_bal = parse_indian_amount(last_data.get('Running_Balance_INR') or last_data.get('Balance') or last_data.get('Closing Balance'))
-                if last_bal is not None:
-                    actual_statement_bal = last_bal
+                for rec in reversed(list(records)):
+                    last_data = rec.normalized_data or rec.raw_data
+                    last_bal = parse_indian_amount(last_data.get('Running_Balance_INR') or last_data.get('Balance') or last_data.get('Closing Balance') or last_data.get('Closing_Balance'))
+                    if last_bal is not None:
+                        actual_statement_bal = last_bal
+                        break
 
             rec_run = BankReconciliationEngine.execute_reconciliation(
                 engagement=engagement,
@@ -1121,7 +1118,7 @@ class AutomationOrchestratorService:
                 cashbook_items=book_items,
                 bank_items=bank_items,
                 starting_cashbook_balance=starting_bal,
-                actual_statement_balance=actual_statement_bal
+                actual_statement_balance=actual_statement_bal if actual_statement_bal is not None else Decimal('0.00')
             )
             recon_notes.append(f"BRS: {rec_run.matched_count} matched, {rec_run.unmatched_count} timing diffs (Status: {rec_run.status})")
 

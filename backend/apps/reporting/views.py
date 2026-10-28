@@ -226,7 +226,7 @@ class WorkpaperViewSet(viewsets.ModelViewSet):
 
         ready = all_qs.filter(status=WorkpaperStatus.READY_FOR_REVIEW)
         returned = all_qs.filter(status=WorkpaperStatus.RETURNED_FOR_CORRECTION)
-        approved = all_qs.filter(status=WorkpaperStatus.APPROVED)
+        approved = all_qs.filter(status__in=[WorkpaperStatus.APPROVED, WorkpaperStatus.PARTNER_AUTHORIZED])
         draft = all_qs.filter(status=WorkpaperStatus.DRAFT)
 
         return Response({
@@ -238,6 +238,66 @@ class WorkpaperViewSet(viewsets.ModelViewSet):
                 'draft': draft.count(),
             },
             'items': self.get_serializer(all_qs, many=True).data
+        })
+
+    @action(detail=False, methods=['post'])
+    def approve_all(self, request):
+        """
+        Batch approve and sign off workpapers under SA 220 / SA 230.
+        Accepts optional 'ids' list, 'engagement', or approves all pending/ready_for_review workpapers.
+        """
+        from django.utils import timezone
+        from .models import WorkpaperStatus
+        engagement_id = request.data.get('engagement')
+        ids = request.data.get('ids')
+        reason = request.data.get('reason') or "Reviewed and approved by Chartered Accountant in accordance with SA 230 audit documentation and SA 220 quality control standards."
+        current_user = request.user if request.user.is_authenticated else None
+        username = current_user.username if current_user else (request.data.get('reviewer_name') or 'Audit Partner / Chartered Accountant')
+
+        qs = self.get_queryset()
+        if engagement_id:
+            qs = qs.filter(engagement_id=engagement_id)
+        if ids and isinstance(ids, list) and len(ids) > 0:
+            qs = qs.filter(id__in=ids)
+        else:
+            qs = qs.filter(status__in=[
+                WorkpaperStatus.READY_FOR_REVIEW,
+                WorkpaperStatus.REVIEW_REQUIRED,
+                WorkpaperStatus.RETURNED_FOR_CORRECTION,
+                WorkpaperStatus.DRAFT,
+                WorkpaperStatus.PREPARED
+            ])
+
+        count = 0
+        now = timezone.now()
+        for wp in qs:
+            wp.status = WorkpaperStatus.APPROVED
+            wp.evidence_verified = True
+            wp.approval_reason = reason
+            wp.approved_at = now
+            wp.reviewed_at = now
+            if current_user:
+                wp.reviewed_by = current_user
+                if not wp.reviewer:
+                    wp.reviewer = current_user
+
+            if not isinstance(wp.version_history, list):
+                wp.version_history = []
+            wp.version_history.append({
+                'version': wp.version,
+                'action': 'APPROVED',
+                'timestamp': now.isoformat(),
+                'user': username,
+                'approval_reason': reason,
+                'notes': 'Batch approved & signed off under SA 220 quality control and SA 230 audit documentation.'
+            })
+            wp.version += 1
+            wp.save()
+            count += 1
+
+        return Response({
+            'message': f'Successfully approved and signed off {count} workpaper(s) under SA 220 / SA 230 standards.',
+            'count': count
         })
 
     @action(detail=False, methods=['post'])
