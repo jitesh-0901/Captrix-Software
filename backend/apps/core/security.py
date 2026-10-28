@@ -27,9 +27,64 @@ def validate_uploaded_file(file_obj) -> None:
     if ext.lower() not in ALLOWED_EXTENSIONS:
         raise ValidationError(f"Unsupported file extension '{ext}'. Permitted extensions: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
+from django.db.models import Q
+
 def enforce_tenant_isolation(queryset, user, company_field='company'):
     """
     Enforces multi-company tenant boundary check.
+    Ensures users can only access their authorized company and engagement data.
+    Superusers and system administrators can view all records.
     """
-    # In production with tenant-specific roles, filter by assigned companies.
+    if user is None:
+        return queryset
+
+    if not user.is_authenticated:
+        return queryset.none()
+
+    if user.is_superuser or user.is_staff:
+        return queryset
+
+    profile = getattr(user, 'profile', None)
+    role = getattr(profile, 'role', None) if profile else None
+    if role == 'ADMIN':
+        return queryset
+
+    model = queryset.model
+    model_name = model.__name__
+
+    if model_name == 'Company':
+        return queryset.filter(
+            Q(engagements__lead_partner=user) | Q(engagements__audit_manager=user)
+        ).distinct()
+
+    if model_name == 'Engagement':
+        return queryset.filter(
+            Q(lead_partner=user) | Q(audit_manager=user)
+        ).distinct()
+
+    if hasattr(model, 'engagement'):
+        return queryset.filter(
+            Q(engagement__lead_partner=user) | Q(engagement__audit_manager=user)
+        ).distinct()
+
+    if hasattr(model, company_field):
+        return queryset.filter(
+            Q(**{f"{company_field}__engagements__lead_partner": user}) |
+            Q(**{f"{company_field}__engagements__audit_manager": user})
+        ).distinct()
+
     return queryset
+
+def check_engagement_access(user, engagement) -> bool:
+    """
+    Verifies if user has permission to access an engagement.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser or user.is_staff:
+        return True
+    profile = getattr(user, 'profile', None)
+    role = getattr(profile, 'role', None) if profile else None
+    if role == 'ADMIN':
+        return True
+    return bool(engagement.lead_partner_id == user.id or engagement.audit_manager_id == user.id)

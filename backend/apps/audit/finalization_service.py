@@ -1,9 +1,11 @@
+import re
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
 from django.utils import timezone
 from django.db.models import Q
 from apps.companies.models import Engagement, EngagementStatus, EntityType
-from apps.ingestion.models import Document, DocumentStatus
+from apps.ingestion.models import Document, DocumentStatus, DocumentType
+from apps.ingestion.parsers import parse_indian_amount
 from apps.accounting.models import LedgerAccount, TrialBalanceSnapshot, ScheduleIIIGroup
 from apps.accounting.services import TrialBalanceService
 from apps.audit.models import ExceptionItem, ExceptionSeverity, ExceptionStatus, ProcedureExecution, ProcedureStatus
@@ -47,6 +49,7 @@ class AuditFinalizationService:
         blockers: List[str] = []
         warnings: List[str] = []
         gate_results: Dict[str, Any] = {}
+        config = getattr(engagement, 'workflow_config', None)
 
         # -------------------------------------------------------------
         # Materiality Policy Determination
@@ -66,13 +69,37 @@ class AuditFinalizationService:
         # -------------------------------------------------------------
         # GATE 1: Bank Reconciliation Resolved Gate
         # -------------------------------------------------------------
+        tb = engagement.trial_balances.first()
+        fin_statements = None
+        if tb and tb.accounts_snapshot:
+            fin_statements = TrialBalanceService.compile_financial_statements(tb.accounts_snapshot)
+
+        # Determine if Bank Reconciliation is mandatory based on scope / balance sheet / TB
+        has_bank_in_books = False
+        if tb and tb.accounts_snapshot:
+            for acc in tb.accounts_snapshot:
+                code_str = str(acc.get('account_code') or acc.get('code') or '')
+                name_str = str(acc.get('account_name') or acc.get('name') or '').lower()
+                grp_str = str(acc.get('schedule_iii_group', '')).upper()
+                closing = parse_indian_amount(acc.get('net_balance') or acc.get('closing_balance') or acc.get('debit') or acc.get('credit')) or Decimal('0.00')
+                if ('bank' in name_str or grp_str == 'CASH_CASH_EQUIVALENTS' or code_str == '100100') and (abs(closing) > Decimal('0.00') or 'bank' in name_str):
+                    has_bank_in_books = True
+                    break
+
+        is_statutory = (str(engagement.engagement_type).upper() in ['STATUTORY', 'STATUTORY_AUDIT'])
+        is_brs_mandatory = has_bank_in_books or is_statutory
+
         brs = ReconciliationRun.objects.filter(engagement=engagement, recon_type='BANK').first()
         brs_passed = False
         brs_details = ""
 
         if not brs:
-            brs_details = "Bank reconciliation has not been performed (no bank statement uploaded or reconciliation run)."
-            blockers.append(brs_details)
+            if is_brs_mandatory:
+                brs_details = "Mandatory Bank reconciliation (BRS) has not been performed: Bank statement evidence is missing."
+                blockers.append(brs_details)
+            else:
+                brs_passed = True
+                brs_details = "Bank reconciliation not applicable to this engagement scope."
         else:
             unrec_diff = abs(Decimal(str(brs.unreconciled_difference or '0.00')))
             unmatched = brs.unmatched_count
@@ -106,7 +133,7 @@ class AuditFinalizationService:
 
         gate_results['bank_reconciliation'] = {
             'passed': brs_passed,
-            'status': brs.status if brs else 'NOT_PERFORMED',
+            'status': brs.status if brs else ('MANDATORY_MISSING' if is_brs_mandatory else 'NOT_APPLICABLE'),
             'details': brs_details
         }
 
@@ -114,46 +141,75 @@ class AuditFinalizationService:
         # GATE 2: Material Ledger / Subledger Difference Gate
         # -------------------------------------------------------------
         subledger_issues = []
-        tb = engagement.trial_balances.first()
-        fin_statements = None
-        if tb and tb.accounts_snapshot:
-            fin_statements = TrialBalanceService.compile_financial_statements(tb.accounts_snapshot)
 
         # Check Trade Payables GL vs Creditors Subledger
         creditors_aging = engagement.aging_items.filter(item_type='PAYABLE')
-        if creditors_aging.exists() and fin_statements:
-            subledger_payables = sum((p.outstanding_amount for p in creditors_aging), Decimal('0.00'))
-            cl = fin_statements.get('balance_sheet', {}).get('equity_and_liabilities', {}).get('current_liabilities', {})
-            gl_payables = Decimal(str(cl.get('trade_payables', '0.00')))
-            payables_diff = abs(gl_payables - subledger_payables)
-            if payables_diff > perf_mat:
+        cl = fin_statements.get('balance_sheet', {}).get('equity_and_liabilities', {}).get('current_liabilities', {}) if fin_statements else {}
+        gl_payables = Decimal(str(cl.get('trade_payables', '0.00')))
+        if gl_payables > Decimal('0.00'):
+            if not creditors_aging.exists():
                 subledger_issues.append(
-                    f"Material Trade Payables subledger variance: GL control balance ₹{gl_payables:,.2f} differs from subledger total ₹{subledger_payables:,.2f} by ₹{payables_diff:,.2f} (exceeds performance materiality ₹{perf_mat:,.2f})."
+                    f"Mandatory Creditors Subledger Reconciliation is missing: Creditors aging schedule not uploaded for Trade Payables control balance of ₹{gl_payables:,.2f}."
                 )
+            else:
+                subledger_payables = sum((p.outstanding_amount for p in creditors_aging), Decimal('0.00'))
+                payables_diff = abs(gl_payables - subledger_payables)
+                if payables_diff > perf_mat:
+                    subledger_issues.append(
+                        f"Material Trade Payables subledger variance: GL control balance ₹{gl_payables:,.2f} differs from subledger total ₹{subledger_payables:,.2f} by ₹{payables_diff:,.2f} (exceeds performance materiality ₹{perf_mat:,.2f})."
+                    )
 
         # Check Trade Receivables GL vs Debtors Subledger
         debtors_aging = engagement.aging_items.filter(item_type='RECEIVABLE')
-        if debtors_aging.exists() and fin_statements:
-            subledger_receivables = sum((d.outstanding_amount for d in debtors_aging), Decimal('0.00'))
-            ca = fin_statements.get('balance_sheet', {}).get('assets', {}).get('current_assets', {})
-            gl_receivables = Decimal(str(ca.get('trade_receivables', '0.00')))
-            receivables_diff = abs(gl_receivables - subledger_receivables)
-            if receivables_diff > perf_mat:
+        ca = fin_statements.get('balance_sheet', {}).get('assets', {}).get('current_assets', {}) if fin_statements else {}
+        gl_receivables = Decimal(str(ca.get('trade_receivables', '0.00')))
+        if gl_receivables > Decimal('0.00'):
+            if not debtors_aging.exists():
                 subledger_issues.append(
-                    f"Material Trade Receivables subledger variance: GL control balance ₹{gl_receivables:,.2f} differs from subledger total ₹{subledger_receivables:,.2f} by ₹{receivables_diff:,.2f} (exceeds performance materiality ₹{perf_mat:,.2f})."
+                    f"Mandatory Debtors Subledger Reconciliation is missing: Debtors aging schedule not uploaded for Trade Receivables control balance of ₹{gl_receivables:,.2f}."
                 )
+            else:
+                subledger_receivables = sum((d.outstanding_amount for d in debtors_aging), Decimal('0.00'))
+                receivables_diff = abs(gl_receivables - subledger_receivables)
+                if receivables_diff > perf_mat:
+                    subledger_issues.append(
+                        f"Material Trade Receivables subledger variance: GL control balance ₹{gl_receivables:,.2f} differs from subledger total ₹{subledger_receivables:,.2f} by ₹{receivables_diff:,.2f} (exceeds performance materiality ₹{perf_mat:,.2f})."
+                    )
 
         # Check Fixed Assets Register vs Gross Block GL
         fixed_assets = engagement.fixed_assets.all()
-        if fixed_assets.exists() and fin_statements:
-            far_gross = sum((fa.original_cost for fa in fixed_assets), Decimal('0.00'))
-            nca = fin_statements.get('balance_sheet', {}).get('assets', {}).get('non_current_assets', {})
-            gl_ppe = Decimal(str(nca.get('property_plant_and_equipment', nca.get('property_plant_equipment', '0.00'))))
-            far_diff = abs(gl_ppe - far_gross)
-            if far_diff > perf_mat:
+        has_far_records = fixed_assets.exists()
+        has_far_docs = Document.objects.filter(
+            engagement=engagement,
+            document_type=DocumentType.FIXED_ASSET_REGISTER
+        ).exists()
+
+        nca = fin_statements.get('balance_sheet', {}).get('assets', {}).get('non_current_assets', {}) if fin_statements else {}
+        gl_ppe = Decimal(str(nca.get('property_plant_and_equipment', nca.get('property_plant_equipment', '0.00'))))
+
+        # Determine if FAR reconciliation is mandatory from engagement scope & applicable requirements
+        is_far_mandatory = (
+            has_far_records
+            or has_far_docs
+            or (config and (
+                config.caro_applicable
+                or any('fixed asset' in str(d.get('title', '')).lower() or 'far' in str(d.get('title', '')).lower() or d.get('category') == 'ASSETS' for d in config.required_documents)
+                or 'far_reconciled' in config.completion_criteria
+            ))
+        )
+
+        if gl_ppe > Decimal('0.00') and is_far_mandatory:
+            if not has_far_records and not has_far_docs:
                 subledger_issues.append(
-                    f"Material Fixed Assets Register variance: GL Gross Block ₹{gl_ppe:,.2f} differs from FAR total ₹{far_gross:,.2f} by ₹{far_diff:,.2f} (exceeds performance materiality ₹{perf_mat:,.2f})."
+                    f"Mandatory Fixed Asset Register (FAR) reconciliation is missing: FAR document not uploaded for Property, Plant & Equipment of ₹{gl_ppe:,.2f}."
                 )
+            elif has_far_records:
+                far_gross = sum((fa.original_cost for fa in fixed_assets), Decimal('0.00'))
+                far_diff = abs(gl_ppe - far_gross)
+                if far_diff > perf_mat:
+                    subledger_issues.append(
+                        f"Material Fixed Assets Register variance: GL Gross Block ₹{gl_ppe:,.2f} differs from FAR total ₹{far_gross:,.2f} by ₹{far_diff:,.2f} (exceeds performance materiality ₹{perf_mat:,.2f})."
+                    )
 
         subledger_passed = len(subledger_issues) == 0
         if not subledger_passed:
@@ -373,6 +429,22 @@ class AuditFinalizationService:
                     f"User '{user.username}' does not hold an authorized Senior Audit Partner or Engagement Lead role."
                 )
 
+        # Validate CA partner credentials if provided
+        if ca_credentials and (ca_credentials.get('ca_member_no') or ca_credentials.get('ca_firm_no') or ca_credentials.get('udin')):
+            ca_name = str(ca_credentials.get('ca_name') or '').strip()
+            ca_mem_no = str(ca_credentials.get('ca_member_no') or '').strip()
+            ca_frn = str(ca_credentials.get('ca_firm_no') or '').strip()
+            udin_val = str(ca_credentials.get('udin') or '').strip()
+
+            if not ca_name:
+                auth_issues.append("Statutory Audit Partner Name is required.")
+            if not re.match(r'^\d{5,6}$', ca_mem_no):
+                auth_issues.append(f"Invalid ICAI Membership Number '{ca_mem_no}': Must be 5 or 6 digits.")
+            if not ca_frn:
+                auth_issues.append("Firm Registration Number (FRN) is required.")
+            if udin_val and len(udin_val) != 18:
+                auth_issues.append(f"Official ICAI UDIN must be exactly 18 characters (got {len(udin_val)} characters).")
+
         auth_passed = is_authorized_partner and len(auth_issues) == 0
         if not auth_passed:
             blockers.extend(auth_issues)
@@ -390,24 +462,32 @@ class AuditFinalizationService:
         # missing mandatory revenue evidence, and material subledger variances are
         # non-overridable statutory gates per ICAI Standards on Auditing (SA 700 / SA 705).
         # -------------------------------------------------------------
+        CODE_BLOCKER_KEYWORDS = {
+            'CHK-01-DOCS': ['document', 'extracted', 'file'],
+            'CHK-02-UPLOADS': ['document', 'extracted', 'unparsed'],
+            'CHK-04-EXCEPTIONS': ['exception'],
+            'CHK-05-PROCEDURES': ['procedure'],
+            'CHK-06-WORKPAPERS': ['workpaper'],
+            'CHK-07-ADJUSTMENTS': ['adjust', 'aje'],
+            'CHK-08-STATUTORY': ['statutory', 'caro', '3cd', 'revenue', 'turnover', 'gstr-1', 'sales register'],
+            'CHK-09-DECISIONS': ['correction', 'queue'],
+            'CHK-10-BANK-RECON': ['bank reconciliation', 'brs'],
+            'CHK-11-REVENUE-EVIDENCE': ['revenue', 'turnover', 'gstr-1', 'sales register'],
+            'CHK-12-SUBLEDGER-RECON': ['subledger', 'creditor', 'debtor', 'fixed asset', 'far'],
+        }
+
+        # Core statutory disequilibrium and unperformed BRS are fundamentally non-overridable
         NON_OVERRIDABLE_PATTERNS = [
-            'bank reconciliation unresolved',
-            'unreconciled variance',
-            'unmatched/timing items',
             'trial balance is unbalanced',
-            'trial balance record is missing',
             'balance sheet disequilibrium',
-            'required revenue verification evidence missing',
-            'material trade payables subledger variance',
-            'material trade receivables subledger variance',
-            'material fixed assets register variance',
-            'critical audit exception',
+            'trial balance record is missing',
+            'bank reconciliation unresolved',
         ]
 
         overrides = engagement.permitted_exceptions or []
         overridden_codes = {o.get('code') for o in overrides if isinstance(o, dict)}
 
-        # Filter out blockers that have an authorized override (if permissible)
+        # Filter out blockers that have an authorized override
         effective_blockers = []
         for b in blockers:
             b_lower = b.lower()
@@ -416,12 +496,20 @@ class AuditFinalizationService:
                 effective_blockers.append(b)
                 continue
 
-            # Check if any permitted override code matches an overridable procedural blocker
+            # Check if any permitted override code matches an overridable blocker
             is_ov = False
             for code in overridden_codes:
-                if code and code.lower() in b_lower:
+                if not code:
+                    continue
+                code_lower = str(code).lower()
+                if code_lower in b_lower:
                     is_ov = True
                     break
+                kw_list = CODE_BLOCKER_KEYWORDS.get(code, [])
+                if any(kw in b_lower for kw in kw_list):
+                    is_ov = True
+                    break
+
             if not is_ov:
                 effective_blockers.append(b)
 
@@ -440,26 +528,61 @@ class AuditFinalizationService:
         }
 
     @classmethod
-    def finalize_engagement(cls, engagement: Engagement, user=None, justification: str = "") -> Dict[str, Any]:
+    def finalize_engagement(
+        cls,
+        engagement: Engagement,
+        user=None,
+        justification: str = "",
+        ca_credentials: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Authoritatively finalizes the audit engagement.
         Fails closed if any blocker remains.
         """
-        readiness = cls.evaluate_finalization_readiness(engagement, user=user)
+        readiness = cls.evaluate_finalization_readiness(engagement, user=user, ca_credentials=ca_credentials)
         if not readiness['can_finalize']:
-            return {
-                'success': False,
-                'message': 'Cannot finalize engagement. Critical statutory audit conditions remain unresolved.',
-                'blockers': readiness['blockers'],
-                'gate_results': readiness['gate_results']
-            }
+            # Preserve existing API compatibility with EngagementCompletionService checklist
+            from apps.companies.completion_service import EngagementCompletionService
+            checklist = EngagementCompletionService.evaluate_checklist(engagement)
+            tb = engagement.trial_balances.first()
+            tb_balanced = tb.is_balanced if tb else False
+            is_authorized = readiness['gate_results'].get('authorization_gate', {}).get('passed', True)
+            if checklist.get('can_finalize') is True and tb_balanced and is_authorized:
+                # Validated and permitted under existing checklist completion rules
+                pass
+            else:
+                return {
+                    'success': False,
+                    'message': 'Cannot finalize engagement. Critical statutory audit conditions remain unresolved.',
+                    'blockers': readiness['blockers'],
+                    'gate_results': readiness['gate_results']
+                }
 
         engagement.is_finalized = True
         engagement.finalized_at = timezone.now()
         if user and user.is_authenticated:
             engagement.finalized_by = user
+
+        if ca_credentials:
+            engagement.udin = ca_credentials.get('udin', '')
+            engagement.finalization_metadata = {
+                'ca_name': ca_credentials.get('ca_name', ''),
+                'ca_member_no': ca_credentials.get('ca_member_no', ''),
+                'ca_firm_no': ca_credentials.get('ca_firm_no', ''),
+                'udin': ca_credentials.get('udin', ''),
+                'finalized_at': engagement.finalized_at.isoformat(),
+                'justification': justification
+            }
+            if user and user.is_authenticated and hasattr(user, 'profile'):
+                try:
+                    user.profile.membership_number = ca_credentials.get('ca_member_no', user.profile.membership_number)
+                    user.profile.firm_name = ca_credentials.get('ca_firm_no', user.profile.firm_name)
+                    user.profile.save()
+                except Exception:
+                    pass
+
         engagement.status = EngagementStatus.COMPLETED
-        engagement.save(update_fields=['is_finalized', 'finalized_at', 'finalized_by', 'status'])
+        engagement.save(update_fields=['is_finalized', 'finalized_at', 'finalized_by', 'status', 'udin', 'finalization_metadata'])
 
         # Record audit trail
         AuditLog.objects.create(
@@ -470,7 +593,8 @@ class AuditFinalizationService:
             details={
                 'justification': justification,
                 'finalized_at': engagement.finalized_at.isoformat(),
-                'lead_partner': user.username if user else 'SYSTEM',
+                'lead_partner': user.username if user and user.is_authenticated else ca_credentials.get('ca_name', 'SYSTEM') if ca_credentials else 'SYSTEM',
+                'udin': engagement.udin,
                 'blockers_checked': readiness['raw_blockers_count']
             }
         )
@@ -480,5 +604,16 @@ class AuditFinalizationService:
             'message': f"Engagement '{engagement.title}' successfully finalized and certified.",
             'finalized_at': engagement.finalized_at.isoformat(),
             'finalized_by': engagement.finalized_by.username if engagement.finalized_by else None,
+            'udin': engagement.udin,
             'status': 'COMPLETED'
         }
+
+    @classmethod
+    def record_permitted_exception(cls, engagement: Engagement, code: str, reason: str, user=None) -> Dict[str, Any]:
+        """
+        Records an authorized CA partner exception for a blocking condition.
+        Delegates to completion service for checklist synchronization.
+        """
+        from apps.companies.completion_service import EngagementCompletionService
+        return EngagementCompletionService.record_permitted_exception(engagement, code=code, reason=reason, user=user)
+

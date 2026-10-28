@@ -68,6 +68,8 @@ export const FinalAuditFilePage: React.FC = () => {
   const [partnerAffirmation, setPartnerAffirmation] = useState(false);
   const [isSigned, setIsSigned] = useState(false);
   const [signOffError, setSignOffError] = useState<string | null>(null);
+  const [signOffBlockers, setSignOffBlockers] = useState<string[]>([]);
+  const [isSigning, setIsSigning] = useState(false);
   const [copiedHash, setCopiedHash] = useState(false);
   const [isExporting, setIsExporting] = useState<string | null>(null);
 
@@ -92,6 +94,32 @@ export const FinalAuditFilePage: React.FC = () => {
         setReportData(rep);
         setTrialBalanceData(tb);
         setGlScrutinyData(gl);
+
+        // Pre-fill finalized credentials if engagement is already finalized
+        const isFin = Boolean(
+          rep?.report_metadata?.is_finalized ||
+          rep?.report_summary?.is_finalized ||
+          (activeRun as any)?.engagement_details?.is_finalized
+        );
+        if (isFin) {
+          setIsSigned(true);
+          const caBox = rep?.responsible_ca_signoff_box;
+          if (caBox) {
+            if (caBox.lead_partner && caBox.lead_partner !== 'Partner (FCA / ACA)') {
+              setCaName(caBox.lead_partner);
+            }
+            if (caBox.membership_number && !caBox.membership_number.includes('Required')) {
+              setCaMemberNo(caBox.membership_number);
+            }
+            if (caBox.firm_name && caBox.firm_name !== 'Engagement Audit Firm') {
+              setCaFirmNo(caBox.firm_name);
+            }
+            if (caBox.udin && !caBox.udin.includes('To be obtained')) {
+              setRecordedUdin(caBox.udin);
+              setUdinVerificationStatus('OBTAINED_FROM_ICAI');
+            }
+          }
+        }
       } else {
         setErrorMsg('No audit runs found. Please upload documents first.');
       }
@@ -463,10 +491,9 @@ export const FinalAuditFilePage: React.FC = () => {
   const gate6Pass = isGate6Passed;
   const canSignReport = isGate6Passed;
 
-  const handleSignOff = () => {
+  const handleSignOff = async () => {
     if (isSigned) {
-      setIsSigned(false);
-      setSignOffError(null);
+      setSignOffError('This engagement is already authoritatively certified in the database. Any revision requires an authorized adjusting journal entry (AJE).');
       return;
     }
 
@@ -491,8 +518,51 @@ export const FinalAuditFilePage: React.FC = () => {
       return;
     }
 
-    setIsSigned(true);
+    const engId = run?.engagement || undefined;
+    if (!engId) {
+      setSignOffError('No active audit engagement found to finalize.');
+      return;
+    }
+
+    setIsSigning(true);
     setSignOffError(null);
+    setSignOffBlockers([]);
+
+    try {
+      const res = await api.finalizeEngagement(
+        engId,
+        'Statutory Audit finalization and independent CA partner certification completed.',
+        {
+          ca_name: caName.trim(),
+          ca_member_no: caMemberNo.trim(),
+          ca_firm_no: caFirmNo.trim(),
+          udin: recordedUdin.trim(),
+        }
+      );
+
+      if (res && res.success) {
+        setIsSigned(true);
+        setSignOffError(null);
+        setSignOffBlockers([]);
+        await loadData();
+      } else {
+        setIsSigned(false);
+        const errMsg = res?.message || 'Cannot finalize statutory audit engagement.';
+        setSignOffError(errMsg);
+        if (Array.isArray(res?.blockers)) {
+          setSignOffBlockers(res.blockers);
+        }
+      }
+    } catch (err: any) {
+      setIsSigned(false);
+      const errMsg = err?.message || (typeof err === 'string' ? err : 'Finalization failed due to statutory audit blockers.');
+      setSignOffError(errMsg);
+      if (Array.isArray(err?.blockers)) {
+        setSignOffBlockers(err.blockers);
+      }
+    } finally {
+      setIsSigning(false);
+    }
   };
 
   const handlePrintCertificate = () => {
@@ -2418,11 +2488,23 @@ export const FinalAuditFilePage: React.FC = () => {
               </label>
             </div>
 
-            {/* Error Message */}
+            {/* Error Message & Blockers */}
             {signOffError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>{signOffError}</span>
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-2">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{signOffError}</span>
+                </div>
+                {signOffBlockers.length > 0 && (
+                  <div className="pl-6 pt-1">
+                    <p className="font-semibold text-rose-900 mb-1">Unresolved Statutory Blockers:</p>
+                    <ul className="list-disc space-y-1 text-rose-700">
+                      {signOffBlockers.map((blocker, idx) => (
+                        <li key={idx} className="leading-relaxed">{blocker}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2432,7 +2514,7 @@ export const FinalAuditFilePage: React.FC = () => {
                 {isSigned ? (
                   <span className="text-emerald-700 flex items-center gap-1.5 font-semibold">
                     <CheckCircle2 className="w-4 h-4" />
-                    Sign-off verified and recorded in engagement ledger.
+                    Sign-off verified, certified, and persisted in database.
                   </span>
                 ) : (
                   <span>Ensure all pre-flight gates and working papers are cleared before recording statutory sign-off.</span>
@@ -2447,24 +2529,31 @@ export const FinalAuditFilePage: React.FC = () => {
                 )}
 
                 <button
+                  type="button"
                   onClick={handleSignOff}
+                  disabled={!canSignReport || isSigning}
                   className={`px-6 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
                     isSigned
-                      ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300'
-                      : canSignReport
+                      ? 'bg-emerald-700 text-white shadow-sm cursor-default'
+                      : canSignReport && !isSigning
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
                       : 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300'
                   }`}
                 >
-                  {isSigned ? (
+                  {isSigning ? (
                     <>
-                      <AlertTriangle className="w-4 h-4" />
-                      <span>Revoke Sign-off (Return to Draft)</span>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Verifying & Finalizing...</span>
+                    </>
+                  ) : isSigned ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Engagement Finalized & Certified</span>
                     </>
                   ) : (
                     <>
                       <ShieldCheck className="w-4 h-4" />
-                      <span>Record Professional CA Sign-off & Lock Review</span>
+                      <span>Sign & Authoritatively Finalize Audit</span>
                     </>
                   )}
                 </button>

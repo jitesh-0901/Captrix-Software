@@ -1368,19 +1368,27 @@ class ReportExporterService:
         status_badge = "DRAFT WORKPAPER — PENDING INDEPENDENT CA REVIEW"
         stamp_placeholder = "<b>[OFFICIAL CA SEAL / STAMP<br/>Required at Authorized Sign-off]</b>"
 
-        if is_final and engagement.lead_partner:
-            partner_user = engagement.lead_partner
-            lead_partner = f"{partner_user.first_name} {partner_user.last_name}".strip() or partner_user.username
-            profile = getattr(partner_user, 'profile', None)
-            if profile:
-                firm_name = profile.firm_name or "[Firm Name Required on Sign-off]"
-                mem_no = profile.membership_number or "[Membership No. Required on Sign-off]"
-                frn_text = getattr(profile, 'firm_registration_number', getattr(profile, 'frn', '')) or "[FRN Required]"
-            else:
-                firm_name = "[Firm Name Required on Sign-off]"
-                mem_no = "[Membership No. Required on Sign-off]"
-                frn_text = "[FRN Required]"
-            udin_text = getattr(engagement, 'udin', '') if (hasattr(engagement, 'udin') and getattr(engagement, 'udin', '')) else "[UDIN to be generated via udin.icai.org upon final sign-off]"
+        if is_final:
+            fin_meta = getattr(engagement, 'finalization_metadata', {}) or {}
+            partner_user = engagement.lead_partner or engagement.finalized_by
+            if partner_user:
+                lead_partner = f"{partner_user.first_name} {partner_user.last_name}".strip() or partner_user.username
+                profile = getattr(partner_user, 'profile', None)
+                if profile:
+                    firm_name = profile.firm_name or "[Firm Name Required on Sign-off]"
+                    mem_no = profile.membership_number or "[Membership No. Required on Sign-off]"
+                    frn_text = getattr(profile, 'firm_registration_number', getattr(profile, 'frn', '')) or "[FRN Required]"
+
+            # Finalization metadata takes precedence
+            if fin_meta.get('ca_name'):
+                lead_partner = fin_meta['ca_name']
+            if fin_meta.get('ca_firm_no'):
+                frn_text = fin_meta['ca_firm_no']
+                firm_name = fin_meta.get('firm_name') or f"Firm Reg. No: {fin_meta['ca_firm_no']}"
+            if fin_meta.get('ca_member_no'):
+                mem_no = fin_meta['ca_member_no']
+
+            udin_text = getattr(engagement, 'udin', '') or fin_meta.get('udin', '') or "[UDIN to be generated via udin.icai.org upon final sign-off]"
             sign_date = engagement.finalized_at.strftime('%d-%b-%Y') if engagement.finalized_at else datetime.now().strftime('%d-%b-%Y')
             sign_place = "India"
             status_badge = "FINAL CERTIFIED AUDIT REPORT"

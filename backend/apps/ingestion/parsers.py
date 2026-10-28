@@ -12,7 +12,7 @@ import openpyxl
 
 logger = logging.getLogger(__name__)
 
-def parse_indian_amount(val) -> Decimal | None:
+def parse_indian_amount(val, allow_blank_zero: bool = True) -> Decimal | None:
     """
     Parses Indian & standard formatted monetary values to Decimal.
     Supports:
@@ -21,19 +21,29 @@ def parse_indian_amount(val) -> Decimal | None:
     - '(50,000.00)' -> Decimal('-50000.00') (parentheses for negative/credit)
     - '₹ 25,450.75'
     - '45000 Cr' -> negative or credit indication
-    - '-' or '' -> None (or 0 if explicitly defined)
+    - Explicit zero ('0', '0.00', '0', 'Nil') -> Decimal('0.00')
+    - Blank / omitted ('', '-', '--', 'nan', 'N/A') ->
+        Decimal('0.00') if allow_blank_zero is True (legitimate zero-movement in ledger debit/credit columns)
+        None if allow_blank_zero is False (missing or unstated transaction amount, never fabricated as zero)
+    - None or invalid corrupted text -> None
     """
     if val is None:
         return None
+    if isinstance(val, (int, float, Decimal)) and val == 0:
+        return Decimal('0.00')
     if isinstance(val, Decimal):
         return val
-    if val == 0:
-        return Decimal('0.00')
+
     s = str(val).strip()
-    if s == '' or s == '-' or s == '--' or s.lower() in ('nil', 'nan'):
+    # Explicit zero strings
+    if s in ('0.00', '0', '0.0', '00'):
         return Decimal('0.00')
-    if s in ('0.00', '0'):
+    if s.lower() == 'nil':
         return Decimal('0.00')
+
+    # Blank, missing, dash, or not-applicable values
+    if s in ('', '-', '--', '---') or s.lower() in ('nan', 'n/a', 'na', 'null', 'none'):
+        return Decimal('0.00') if allow_blank_zero else None
 
     # Remove currency symbols and spaces
     s = s.replace('₹', '').replace('Rs.', '').replace('Rs', '').replace('$', '').replace(' ', '')
@@ -62,6 +72,27 @@ def parse_indian_amount(val) -> Decimal | None:
         return dec
     except (InvalidOperation, ValueError):
         return None
+
+def parse_field_amount(val, field_name: str = "", doc_type: str = "") -> Decimal | None:
+    """
+    Context-aware financial amount parser.
+    Distinguishes legitimate zero-movement ledger columns (e.g., closing debit/credit in TB/GL)
+    from transaction-level amounts (bank deposits/withdrawals, invoice amounts, asset original cost)
+    where blank or missing values must NEVER be fabricated as zero.
+    """
+    field_lower = str(field_name).lower().strip()
+    doc_upper = str(doc_type).upper().strip()
+
+    # Zero-movement ledger columns where an empty cell legitimately indicates zero transaction
+    is_ledger_col = any(k in field_lower for k in [
+        'closing_debit', 'closing_credit', 'opening_debit', 'opening_credit',
+        'debit_inr', 'credit_inr', 'debit (inr)', 'credit (inr)'
+    ]) or (
+        doc_upper in ('TRIAL_BALANCE', 'GENERAL_LEDGER')
+        and field_lower in ('debit', 'credit', 'dr', 'cr', 'closing balance', 'opening balance')
+    )
+
+    return parse_indian_amount(val, allow_blank_zero=is_ledger_col)
 
 def parse_flexible_date(val) -> str | None:
     """Parses various date formats to ISO YYYY-MM-DD"""

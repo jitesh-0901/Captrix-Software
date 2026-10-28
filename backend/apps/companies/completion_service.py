@@ -240,58 +240,19 @@ class EngagementCompletionService:
         }
 
     @classmethod
-    def finalize_engagement(cls, engagement: Engagement, user=None, justification: str = "") -> dict:
+    def finalize_engagement(cls, engagement: Engagement, user=None, justification: str = "", ca_credentials=None) -> dict:
         """
-        Attempts to finalize engagement. Evaluates the completion checklist,
-        the authoritative AuditFinalizationService gates, and ReportIntegrityGateService.
+        Attempts to finalize engagement. Authoritatively delegates to
+        AuditFinalizationService to ensure single-source-of-truth statutory compliance.
         Fails closed if any critical statutory condition remains unresolved.
         """
-        checklist = cls.evaluate_checklist(engagement)
-        if not checklist['can_finalize']:
-            return {
-                'success': False,
-                'message': 'Cannot finalize engagement. Critical statutory audit conditions remain unresolved.',
-                'blockers': checklist['blockers'],
-                'checklist_items': checklist['checklist_items']
-            }
-
-        # Check authorization
-        if user and not (user.is_staff or user.is_superuser or engagement.lead_partner_id == user.id):
-            profile = getattr(user, 'profile', None)
-            role = getattr(profile, 'role', None) if profile else None
-            if role not in ['PARTNER', 'SENIOR_AUDITOR', 'ADMIN']:
-                return {
-                    'success': False,
-                    'message': f"User '{user.username}' is not authorized to finalize the engagement.",
-                    'blockers': ["Unauthorized finalization attempt."]
-                }
-
-        engagement.is_finalized = True
-        engagement.finalized_at = timezone.now()
-        if user and user.is_authenticated:
-            engagement.finalized_by = user
-        engagement.status = EngagementStatus.COMPLETED
-        engagement.save(update_fields=['is_finalized', 'finalized_at', 'finalized_by', 'status'])
-
-        AuditLog.objects.create(
-            user=user if user and user.is_authenticated else None,
-            action="FINALIZE_ENGAGEMENT",
-            entity_type="Engagement",
-            entity_id=str(engagement.id),
-            details={
-                'justification': justification,
-                'finalized_at': engagement.finalized_at.isoformat(),
-                'lead_partner': user.username if user else 'SYSTEM'
-            }
+        from apps.audit.finalization_service import AuditFinalizationService
+        return AuditFinalizationService.finalize_engagement(
+            engagement=engagement,
+            user=user,
+            justification=justification,
+            ca_credentials=ca_credentials
         )
-
-        return {
-            'success': True,
-            'message': f"Engagement '{engagement.title}' successfully finalized and certified.",
-            'finalized_at': engagement.finalized_at.isoformat(),
-            'finalized_by': engagement.finalized_by.username if engagement.finalized_by else None,
-            'status': 'COMPLETED'
-        }
 
     @classmethod
     def record_permitted_exception(cls, engagement: Engagement, code: str, reason: str, user=None) -> dict:

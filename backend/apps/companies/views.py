@@ -280,10 +280,54 @@ class EngagementViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def finalize(self, request, pk=None):
         """Attempts to finalize the engagement. Fails closed if mandatory blockers remain."""
-        from .completion_service import EngagementCompletionService
+        from apps.audit.finalization_service import AuditFinalizationService
+
+        if not request.user or not request.user.is_authenticated:
+            return Response({
+                'success': False,
+                'message': 'Authentication required. Anonymous users cannot finalize an engagement.',
+                'blockers': ['Authentication required. Please sign in with an authorized Senior CA Partner account.']
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
         engagement = self.get_object()
+
+        profile = getattr(request.user, 'profile', None)
+        role = getattr(profile, 'role', None) if profile else None
+        is_authorized = (
+            request.user.is_staff
+            or request.user.is_superuser
+            or role in ['PARTNER', 'SENIOR_AUDITOR', 'ADMIN']
+            or engagement.lead_partner_id == request.user.id
+        )
+        if not is_authorized:
+            return Response({
+                'success': False,
+                'message': f"User '{request.user.username}' is not authorized to finalize the statutory engagement.",
+                'blockers': ['Unauthorized finalization attempt. Lead Partner or Senior CA authorization required.']
+            }, status=status.HTTP_403_FORBIDDEN)
+
         justification = request.data.get('justification', '')
-        result = EngagementCompletionService.finalize_engagement(engagement, user=request.user, justification=justification)
+        has_ca_input = any(
+            request.data.get(k) for k in [
+                'ca_name', 'caName', 'ca_member_no', 'caMemberNo',
+                'ca_firm_no', 'caFirmNo', 'udin', 'recordedUdin'
+            ]
+        )
+        ca_credentials = None
+        if has_ca_input or (profile and getattr(profile, 'membership_number', None)):
+            ca_credentials = {
+                'ca_name': (request.data.get('ca_name') or request.data.get('caName') or f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username).strip(),
+                'ca_member_no': str(request.data.get('ca_member_no') or request.data.get('caMemberNo') or getattr(profile, 'membership_number', '')).strip(),
+                'ca_firm_no': str(request.data.get('ca_firm_no') or request.data.get('caFirmNo') or getattr(profile, 'firm_name', '')).strip(),
+                'udin': str(request.data.get('udin') or request.data.get('recordedUdin') or '').strip(),
+            }
+
+        result = AuditFinalizationService.finalize_engagement(
+            engagement=engagement,
+            user=request.user,
+            justification=justification,
+            ca_credentials=ca_credentials
+        )
         if not result['success']:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)
@@ -291,15 +335,30 @@ class EngagementViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def override_exception(self, request, pk=None):
         """Allows authorized CA partner to record a permitted exception with written justification"""
-        from .completion_service import EngagementCompletionService
+        from apps.audit.finalization_service import AuditFinalizationService
+
+        if not request.user or not request.user.is_authenticated:
+            return Response({'error': 'Authentication required. Anonymous users cannot override exceptions.'}, status=status.HTTP_401_UNAUTHORIZED)
+
         engagement = self.get_object()
+        profile = getattr(request.user, 'profile', None)
+        role = getattr(profile, 'role', None) if profile else None
+        is_authorized = (
+            request.user.is_staff
+            or request.user.is_superuser
+            or role in ['PARTNER', 'SENIOR_AUDITOR', 'ADMIN']
+            or engagement.lead_partner_id == request.user.id
+        )
+        if not is_authorized:
+            return Response({'error': 'Only authorized CA Partners or System Administrators can record permitted audit exceptions.'}, status=status.HTTP_403_FORBIDDEN)
+
         code = request.data.get('code')
         reason = request.data.get('reason')
         if not code or not reason:
             return Response({'error': 'Both code and reason are required'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            result = EngagementCompletionService.record_permitted_exception(engagement, code=code, reason=reason, user=request.user)
+            result = AuditFinalizationService.record_permitted_exception(engagement, code=code, reason=reason, user=request.user)
             return Response(result)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)

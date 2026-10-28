@@ -94,6 +94,8 @@ class Engagement(models.Model):
     is_finalized = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True)
     finalized_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='finalized_engagements')
+    udin = models.CharField(max_length=50, blank=True, default='', help_text="Official 18-character ICAI Unique Document Identification Number")
+    finalization_metadata = models.JSONField(default=dict, blank=True, help_text="Persisted CA partner certification metadata (CA Name, Membership No, FRN, UDIN, Signing Date/Place)")
     permitted_exceptions = models.JSONField(default=list, blank=True, help_text="Documented authorized exceptions with justification and audit trail")
 
     created_at = models.DateTimeField(auto_now_add=True)

@@ -413,12 +413,15 @@ export const api = {
     if (!res.ok) return null;
     return res.json();
   },
-  async finalizeEngagement(engagementId?: number | string, justification?: string) {
+  async finalizeEngagement(engagementId?: number | string, justification?: string, caCredentials?: Record<string, any>) {
     if (!engagementId) return { success: false, error: 'No active engagement selected' };
     const res = await fetch(`${API_BASE}/companies/engagements/${engagementId}/finalize/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ justification }),
+      body: JSON.stringify({
+        justification,
+        ...(caCredentials || {})
+      }),
     });
     if (!res.ok) {
       const err = await res.json();

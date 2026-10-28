@@ -1023,15 +1023,15 @@ class ConsolidatedAuditReportBuilder:
             ),
             'statutory_status': "FINAL_CERTIFIED_STATUTORY_OPINION" if is_final_certified else "DRAFT_PENDING_PROFESSIONAL_REVIEW",
             'responsible_ca_signoff_box': {
-                'firm_name': "Engagement Audit Firm",
-                'lead_partner': engagement.lead_partner.username if engagement.lead_partner else "Partner (FCA / ACA)",
-                'membership_number': "ICAI M.No. Required upon final signing" if not is_final_certified else (engagement.lead_partner.username if engagement.lead_partner else "Verified CA"),
-                'udin': "To be obtained by practicing CA via official ICAI portal (udin.icai.org)" if not is_final_certified else "VERIFIED_ICAI_PORTAL_UDIN",
-                'udin_status': "PENDING_OFFICIAL_ICAI_GENERATION" if not is_final_certified else "VERIFIED_ON_OFFICIAL_PORTAL",
+                'firm_name': (getattr(engagement, 'finalization_metadata', {}) or {}).get('ca_firm_no') or "Engagement Audit Firm",
+                'lead_partner': (getattr(engagement, 'finalization_metadata', {}) or {}).get('ca_name') or (engagement.lead_partner.username if engagement.lead_partner else "Partner (FCA / ACA)"),
+                'membership_number': (getattr(engagement, 'finalization_metadata', {}) or {}).get('ca_member_no') or ("ICAI M.No. Required upon final signing" if not is_final_certified else (engagement.lead_partner.username if engagement.lead_partner else "Verified CA")),
+                'udin': getattr(engagement, 'udin', '') or (getattr(engagement, 'finalization_metadata', {}) or {}).get('udin', '') or ("To be obtained by practicing CA via official ICAI portal (udin.icai.org)" if not is_final_certified else "VERIFIED_ICAI_PORTAL_UDIN"),
+                'udin_status': "VERIFIED_ON_OFFICIAL_PORTAL" if (is_final_certified and getattr(engagement, 'udin', '')) else ("PENDING_OFFICIAL_ICAI_GENERATION" if not is_final_certified else "VERIFIED_ON_OFFICIAL_PORTAL"),
                 'udin_policy_notice': "In accordance with ICAI mandates, official UDINs must be generated directly on the ICAI portal by the signing CA. Software-generated or simulated UDINs are strictly prohibited.",
                 'report_reference': f"CAPTRIX/{'FINAL' if is_final_certified else 'DRAFT'}/{engagement.id}/{timezone.now().strftime('%Y%m%d')}",
                 'place': "Mumbai, India",
-                'date': timezone.now().strftime('%d-%b-%Y')
+                'date': engagement.finalized_at.strftime('%d-%b-%Y') if (engagement.finalized_at and is_final_certified) else timezone.now().strftime('%d-%b-%Y')
             }
         }
 
