@@ -46,7 +46,7 @@ def classify_schedule_iii(account_name: str) -> str:
     # Must precede PPE and Intangibles so "Depreciation on Laptops/Machinery"
     # or "Amortization of Software" is classified as DEPRECIATION_AMORT, not PPE.
     # -------------------------------------------------------------------------
-    if any(k in name for k in ['accumulated depreciation', 'provision for depreciation']):
+    if any(k in name for k in ['accumulated depreciation', 'provision for depreciation', 'contra asset']):
         return ScheduleIIIGroup.PPE  # Contra asset under PPE
     if any(k in name for k in [
         'depreciation', 'amortization', 'amortisation', 'depreciation & amortization'
@@ -116,7 +116,8 @@ def classify_schedule_iii(account_name: str) -> str:
         'sundry creditor', 'sundry creditors', 'trade creditor', 'trade creditors',
         'trade payable', 'trade payables', 'accounts payable', 'vendor payable',
         'suppliers payable', 'creditor for goods', 'creditor for supplies', 'creditor for purchase',
-        'msme creditor', 'msme payable', 'micro enterprise', 'small enterprise', 'bills payable', 'acceptances'
+        'msme creditor', 'msme payable', 'micro enterprise', 'small enterprise', 'bills payable', 'acceptances',
+        'supplier', 'suppliers', 'vendor', 'vendors', 'creditor', 'creditors'
     ]) and not any(adv in name for adv in ['advance to', 'advance against', 'prepaid']):
         return ScheduleIIIGroup.TRADE_PAYABLES
 
@@ -212,7 +213,7 @@ def classify_schedule_iii(account_name: str) -> str:
         'share capital', 'equity capital', 'equity share', 'preference share', 'promoter capital',
         'proprietor capital', "proprietor's capital", 'partner capital', "partner's capital",
         'partners capital', 'owner capital', 'paid up capital', 'called up capital', 'capital a/c',
-        'capital account', 'founders capital'
+        'capital account', 'founders capital', 'equity'
     ]):
         return ScheduleIIIGroup.SHARE_CAPITAL
 
@@ -293,7 +294,7 @@ def classify_schedule_iii(account_name: str) -> str:
         k in name for k in ['motor car', 'delivery van', 'two wheeler']
     )
     is_monitor = ('monitor' in words or 'monitors' in words) and 'monitoring' not in name
-    if any(k in name for k in [
+    if name in ['asset', 'fixed asset', 'gross block'] or any(k in name for k in [
         'plant', 'machinery', 'computer', 'computers', 'laptop', 'laptops', 'desktop', 'macbook',
         'networking equipment', 'router', 'switch', 'firewall', 'ups', 'printer', 'scanner',
         'office equipment', 'furniture', 'fixture', 'furnitures & fixtures', 'interior decoration',
@@ -1357,6 +1358,55 @@ class GeneralLedgerScrutinyService:
 
         if created_txns:
             created_txns = Transaction.objects.bulk_create(created_txns)
+
+            # Recalculate true cumulative closing balances and Dr/Cr balance types for all involved ledgers
+            involved_ledgers = set(txn.ledger_account for txn in created_txns if txn.ledger_account)
+            for ledger in involved_ledgers:
+                ledger_txns = Transaction.objects.filter(ledger_account=ledger, engagement=engagement)
+                total_dr = sum((t.debit_amount for t in ledger_txns), Decimal('0.00'))
+                total_cr = sum((t.credit_amount for t in ledger_txns), Decimal('0.00'))
+                net = total_dr - total_cr
+                ledger.closing_balance = abs(net)
+                ledger.closing_balance_type = 'Dr' if net >= Decimal('0.00') else 'Cr'
+                ledger.save(update_fields=['closing_balance', 'closing_balance_type'])
+
+            # If no TrialBalanceSnapshot exists for this engagement, generate authoritative snapshot from General Ledger transactions
+            if not TrialBalanceSnapshot.objects.filter(engagement=engagement).exists():
+                accounts_snapshot = []
+                all_company_ledgers = LedgerAccount.objects.filter(company=engagement.company)
+                tot_dr = Decimal('0.00')
+                tot_cr = Decimal('0.00')
+                for l in all_company_ledgers:
+                    dr_amt = l.closing_balance if l.closing_balance_type == 'Dr' else Decimal('0.00')
+                    cr_amt = l.closing_balance if l.closing_balance_type == 'Cr' else Decimal('0.00')
+                    tot_dr += dr_amt
+                    tot_cr += cr_amt
+                    major_head = l.coa.account_type if l.coa else ('EXPENSES' if dr_amt > 0 else 'LIABILITIES')
+                    sub_head = l.coa.schedule_iii_group if l.coa else ('OPERATING_EXPENSES' if dr_amt > 0 else 'CURRENT_LIABILITIES')
+                    accounts_snapshot.append({
+                        'code': l.code or '',
+                        'name': l.name,
+                        'major_head': major_head,
+                        'sub_head': sub_head,
+                        'closing_balance': str(l.closing_balance),
+                        'closing_balance_type': l.closing_balance_type,
+                        'debit_amount': str(dr_amt),
+                        'credit_amount': str(cr_amt),
+                    })
+                diff = abs(tot_dr - tot_cr)
+                is_bal = (diff < Decimal('0.01'))
+                as_of_dt = engagement.financial_year.end_date if (engagement.financial_year and engagement.financial_year.end_date) else datetime.today().date()
+                TrialBalanceSnapshot.objects.create(
+                    engagement=engagement,
+                    as_of_date=as_of_dt,
+                    total_debits=tot_dr,
+                    total_credits=tot_cr,
+                    difference_amount=diff,
+                    is_balanced=is_bal,
+                    status='BALANCED' if is_bal else 'UNBALANCED',
+                    accounts_snapshot=accounts_snapshot
+                )
+
             GeneralLedgerScrutinyService.scrutinize_transactions(created_txns)
 
             # Comprehensive Financial Data Validation Engine

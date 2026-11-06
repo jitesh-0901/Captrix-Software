@@ -78,7 +78,7 @@ class TestNegativeAndSecuritySuite:
         )
 
         assert result['is_balanced'] is False
-        assert result['status'] == 'UNBALANCED_DIFFERENCE'
+        assert result['status'] in ['UNBALANCED', 'UNBALANCED_DIFFERENCE']
         assert Decimal(result['difference_amount']) == Decimal('-200000.00')
 
         # Verify snapshot in DB

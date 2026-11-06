@@ -327,11 +327,19 @@ class FinancialRatiosEngine:
             if grp == ScheduleIIIGroup.TRADE_PAYABLES:
                 creditors += amt
 
+        tot_exp = c_mat + emp_exp + fin_cost + depn + oth_exp
+        np_amt = (rev + oth_inc) - tot_exp
+        tot_rev = rev + oth_inc
+        np_margin = round(float((np_amt / tot_rev) * Decimal('100.0')), 2) if tot_rev > Decimal('0.00') else None
+
+        # Closing Shareholders' Funds (Equity) = Share Capital + Opening Reserves + Current Year Profit/(Loss)
+        closing_equity = equity + np_amt
+
         # Mathematical ratios computed from verified records with strict statutory formulas
         current_ratio = round(float(ca / cl), 2) if cl > Decimal('0.00') else None
         quick_assets = ca - inv
         quick_ratio = round(float(quick_assets / cl), 2) if cl > Decimal('0.00') else None
-        debt_to_equity = round(float(debt / equity), 2) if equity > Decimal('0.00') else None
+        debt_to_equity = round(float(debt / closing_equity), 2) if closing_equity > Decimal('0.00') else None
 
         # Receivables Turnover = Revenue / Trade Receivables
         receivables_turnover = round(float(rev / debtors), 2) if debtors > Decimal('0.00') and rev > Decimal('0.00') else None
@@ -347,11 +355,6 @@ class FinancialRatiosEngine:
         # Profitability & Margins
         gp = rev - c_mat
         gp_margin = round(float((gp / rev) * Decimal('100.0')), 2) if rev > Decimal('0.00') else None
-
-        tot_exp = c_mat + emp_exp + fin_cost + depn + oth_exp
-        np_amt = (rev + oth_inc) - tot_exp
-        tot_rev = rev + oth_inc
-        np_margin = round(float((np_amt / tot_rev) * Decimal('100.0')), 2) if tot_rev > Decimal('0.00') else None
 
         # Turnover Days
         dso = round(float((debtors / rev) * Decimal('365.0')), 1) if rev > Decimal('0.00') else None
@@ -418,24 +421,24 @@ class FinancialRatiosEngine:
                 'name': 'Debt to Equity Ratio',
                 'category': 'Solvency',
                 'value': debt_to_equity,
-                'display_value': _fmt_ratio(debt_to_equity, 'x') if equity > 0 else ("Negative Equity" if equity < 0 else "Insufficient data"),
+                'display_value': _fmt_ratio(debt_to_equity, 'x') if closing_equity > 0 else ("Negative Equity" if closing_equity < 0 else "Insufficient data"),
                 'formula': 'Total Debt / Shareholders\' Funds',
                 'numerator_name': 'Total Debt (Borrowings)',
                 'numerator_value': str(debt),
                 'denominator_name': 'Shareholders\' Funds (Equity)',
-                'denominator_value': str(equity),
+                'denominator_value': str(closing_equity),
                 'unit': 'x',
                 'benchmark': '< 2.0x',
                 'status': (
                     'HEALTHY' if debt_to_equity is not None and debt_to_equity <= 2.0
                     else ('HIGH_LEVERAGE' if debt_to_equity is not None and debt_to_equity > 2.0
-                          else ('NEGATIVE_EQUITY' if equity < Decimal('0.00') else 'N/A'))
+                          else ('NEGATIVE_EQUITY' if closing_equity < Decimal('0.00') else 'N/A'))
                 ),
                 'interpretation': (
-                    f"Total Debt (₹{debt:,.2f}) represents {debt_to_equity}x of shareholders' equity (₹{equity:,.2f})."
+                    f"Total Debt (₹{debt:,.2f}) represents {debt_to_equity}x of shareholders' equity (₹{closing_equity:,.2f})."
                     if debt_to_equity is not None
-                    else (f"Net worth is negative (₹{equity:,.2f}) due to accumulated losses; capital is eroded."
-                          if equity < Decimal('0.00') else "Zero debt or equity data not available.")
+                    else (f"Net worth is negative (₹{closing_equity:,.2f}) due to accumulated losses; capital is eroded."
+                          if closing_equity < Decimal('0.00') else "Zero debt or equity data not available.")
                 )
             },
             {

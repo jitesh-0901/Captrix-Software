@@ -1,0 +1,735 @@
+=== PAGE 1 ===
+[DRAFT AUDIT FILE — 0 OF 13 WORKPAPERS APPROVED • PARTNER AUTHORIZATION PENDING • 13 HIGH/CRITICAL
+EXCEPTIONS OPEN • INTEGRITY GATE BLOCKERS: CIN is missing for a company engagement.; PAN is missing for the
+ company engagement.]
+ CAPTRIX — AUDIT & ASSURANCE PLATFORM
+INDEPENDENT STATUTORY AUDIT & FINANCIAL REPORT PACK
+Pursuant to Section 129, 134, 139, 143 of the Companies Act, 2013 and Standards on Auditing (SAs) issued by ICAI
+Legal Entity Name:
+Audit Client Entity (444-E1F8)
+Entity Structure:
+Private Limited Company
+Corporate ID (CIN):
+NOT PROVIDED — ENTITY IDENTITY
+REVIEW REQUIRED
+Permanent A/C (PAN):
+NOT PROVIDED — TAX IDENTITY REVIEW
+REQUIRED
+Financial Year:
+FY 2024-25
+Audit Period:
+01-Apr-2024 to 31-Mar-2025
+Engagement Scope:
+Statutory Audit (Companies Act 2013)
+Report Compiled On:
+04-Nov-2026 17:15 IST
+1. Executive Summary & Financial Highlights
+Reported Audit Parameter / Focus Area
+Financial Figure & Statutory Verification Status
+Trial Balance Equilibrium (SA 500)
+NOT_COMPUTED (Awaiting trial balance upload)
+Balance Sheet Equilibrium (Schedule III)
+UNBALANCED (Total Assets: ₹51,250.00, Total Equity & Liab: ₹-219,650.00, Variance: ₹270,900.00)
+Bank Reconciliation (BRS / Passbook)
+REVIEW_REQUIRED (GL does not match bank passbook / statement — unreconciled variance of
+₹60,650.00 (1 stale cheques >90 days; 3 timing/unmatched items))
+Revenue from Operations (Turnover)
+₹0.00
+Total Operating & Administrative Expenses
+₹219,650.00
+Net Profit / (Loss) for the Financial Year
+₹-219,650.00
+Total Balance Sheet Assets (Gross Value)
+₹51,250.00
+Planning Materiality Threshold (SA 320)
+₹500,000.00 (Benchmark: 0.5% of Turnover / Total Assets — PBT is loss/nil)
+Statutory Audit Procedures Executed
+9 Executed (15 Exceptions Noted — Review Required)
+Audit Working Papers (SA 230 Quality File)
+0 of 13 Reviewed (SA 230 File Documented • 13 High/Critical Exceptions Open • Partner
+Authorization Pending)
+Auditor Opinion Readiness Status
+IN PROGRESS (Draft workpaper only — 13 statutory integrity blockers pending partner review)
+Automated processing scope & document lineage: Captrix processed the uploaded records and ran configured mathematical checks where supported.
+Extraction and arithmetic checks do not constitute independent audit verification or establish statutory compliance. Missing source records, unresolved
+reconciliations, exceptions, and reviewer decisions are listed in the relevant schedules; conclusions remain subject to qualified auditor review.
+Page 1 of 6
+CONFIDENTIAL — STRICTLY FOR AUDIT COMMITTEE & QUALIFIED CA REVIEW
+
+
+=== PAGE 2 ===
+2. Balance Sheet as at 31st March 2025
+Audit Client Entity (444-E1F8) • CIN: NOT PROVIDED — ENTITY IDENTITY REVIEW REQUIRED
+SCHEDULE III (DIVISION I) — FORMAT OF BALANCE SHEET PURSUANT TO SECTION 129 OF THE COMPANIES ACT, 2013
+(All amounts in Indian Rupees ₹, rounded to two decimal places)
+Particulars
+Note
+As at 31-Mar-2026 (₹)
+ As at 31-Mar-2025 (₹)
+ I. EQUITY AND LIABILITIES
+(1) Shareholders' Funds
+(a) Share Capital
+1
+ ₹0.00
+ —
+ (b) Reserves and Surplus
+2
+ ₹-219,650.00
+ —
+ (c) Money received against share warrants
+3
+ ₹0.00
+ —
+ Sub-total: Shareholders' Funds
+ ₹-219,650.00
+ —
+ (2) Share application money pending allotment
+4
+ ₹0.00
+ —
+ (3) Non-Current Liabilities
+(a) Long-term borrowings
+5
+ ₹0.00
+ —
+ (b) Deferred tax liabilities (Net)
+6
+ ₹0.00
+ —
+ (c) Other long-term liabilities
+7
+ ₹0.00
+ —
+ (d) Long-term provisions
+8
+ ₹0.00
+ —
+ Sub-total: Non-Current Liabilities
+ ₹0.00
+ —
+ (4) Current Liabilities
+(a) Short-term borrowings
+9
+ ₹0.00
+ —
+ (b) Trade payables:
+10
+ (A) Total outstanding dues of micro & small enterprises (MSME)
+10A
+ ₹0.00
+ —
+ (B) Total outstanding dues of creditors other than micro & small
+10B
+ ₹38,750.00
+ —
+ (c) Other current liabilities
+11
+ ₹0.00
+ —
+ (d) Short-term provisions
+12
+ ₹0.00
+ —
+ Sub-total: Current Liabilities
+ ₹38,750.00
+ —
+ TOTAL EQUITY AND LIABILITIES
+ ₹-219,650.00
+ —
+ II. ASSETS
+(1) Non-Current Assets
+(a) Property, Plant and Equipment and Intangible Assets:
+(i) Property, Plant and Equipment (PPE)
+13
+ ₹0.00
+ —
+ (ii) Intangible assets
+14
+ ₹0.00
+ —
+ (iii) Capital work-in-progress (CWIP)
+15
+ ₹0.00
+ —
+ (b) Non-current investments
+16
+ ₹0.00
+ —
+ (c) Deferred tax assets (Net)
+17
+ ₹0.00
+ —
+ (d) Long-term loans and advances
+18
+ ₹0.00
+ —
+ Sub-total: Non-Current Assets
+ ₹0.00
+ —
+ (2) Current Assets
+(a) Current investments
+19
+ ₹0.00
+ —
+ (b) Inventories
+20
+ ₹0.00
+ —
+ (c) Trade receivables
+21
+ ₹0.00
+ —
+ (d) Cash and cash equivalents (Bank & Cash)
+22
+ ₹12,500.00
+ —
+ (e) Short-term loans and advances
+23
+ ₹0.00
+ —
+ (f) Other current assets
+24
+ ₹38,750.00
+ —
+ Sub-total: Current Assets
+ ₹51,250.00
+ —
+ TOTAL ASSETS
+ ₹51,250.00
+ —
+ ⚠ Balance Sheet Footing Disequilibrium Detected: Total Assets (₹51,250.00) ≠ Total Equity & Liabilities (₹-219,650.00) • Unreconciled Variance:
+₹270,900.00
+REVIEW REQUIRED: Schedule III Balance Sheet does not balance. Statutory sign-off is blocked until the underlying ledger mappings or missing balances are reconciled.
+CAPTRIX — INDEPENDENT FINANCIAL AUDIT & STATUTORY ASSURANCE
+Page 2 of 6
+CONFIDENTIAL — STRICTLY FOR AUDIT COMMITTEE & QUALIFIED CA REVIEW
+
+
+=== PAGE 3 ===
+3. Statement of Profit and Loss for the year ended 31st March 2025
+Audit Client Entity (444-E1F8) • CIN: NOT PROVIDED — ENTITY IDENTITY REVIEW REQUIRED
+SCHEDULE III (DIVISION I) — FORMAT OF STATEMENT OF PROFIT AND LOSS PURSUANT TO SECTION 129
+(All amounts in Indian Rupees ₹, rounded to two decimal places)
+Particulars
+Note
+Year ended 31-Mar-2026
+ (₹)
+ Year ended 31-Mar-2025
+ (₹)
+ I. Revenue from Operations
+25
+ ₹0.00
+ —
+ II. Other Income
+26
+ ₹0.00
+ —
+ III. Total Revenue (I + II)
+ ₹0.00
+ —
+ IV. Expenses:
+(a) Cost of materials consumed / Purchases
+27
+ ₹0.00
+ —
+ (b) Changes in inventories of finished goods and WIP
+28
+ ₹0.00
+ —
+ (c) Employee benefits expense
+29
+ ₹0.00
+ —
+ (d) Finance costs
+30
+ ₹0.00
+ —
+ (e) Depreciation and amortization expense
+31
+ ₹0.00
+ —
+ (f) Other expenses (Administrative & Factory)
+32
+ ₹219,650.00
+ —
+ Total Expenses (IV)
+ ₹219,650.00
+ —
+ V. Profit / (Loss) Before Exceptional Items and Tax (III - IV)
+ ₹-219,650.00
+ —
+ VI. Exceptional Items
+33
+ ₹0.00
+ —
+ VII. Profit / (Loss) Before Tax (PBT) (V - VI)
+ ₹-219,650.00
+ —
+ VIII. Tax Expense:
+(1) Current tax expense
+34
+ ₹0.00
+ —
+ (2) Deferred tax
+35
+ ₹0.00
+ —
+ IX. Profit / (Loss) for the Year (PAT) (VII - VIII)
+ ₹-219,650.00
+ —
+ X. Earnings Per Equity Share (Nominal Value of ₹10/- each):
+(1) Basic (₹)
+36
+ ₹0.00
+ —
+ (2) Diluted (₹)
+36
+ ₹0.00
+ —
+ Mandatory Key Financial Ratios (Companies Act Schedule III 2021 Amendment)
+Ratio Description
+Statutory Formula / Components
+FY 2025-26 Value
+ Auditor Assessment
+1. Current Ratio
+Current Assets / Current Liabilities
+ —
+ Insufficient balance sheet
+component data
+2. Debt-Equity Ratio
+Total Debt / Total Shareholders' Equity
+ —
+ Negative net worth / equity eroded
+by accumulated losses
+ 3. Debt Service Coverage Ratio
+(DSCR)
+(PAT + Depn + Int) / Debt Service Due
+ —
+ Debt service due is nil or operating
+data unavailable
+4. Return on Equity (ROE)
+PAT / Average Shareholders' Equity
+ —
+ Not calculable: negative equity or
+zero capital base
+5. Inventory Turnover Ratio
+Cost of Materials / Average Inventory
+ —
+ Inventory holding/consumption not
+calculable from data
+6. Trade Receivables Turnover
+Revenue / Average Trade Receivables
+ —
+ Trade receivables turnover not
+calculable from data
+7. Trade Payables Turnover
+Purchases / Average Trade Payables
+ —
+ Trade payables turnover not
+calculable from data
+8. Net Capital Turnover Ratio
+Revenue / Working Capital
+ —
+ Negative working capital; current
+liabilities exceed current assets
+9. Net Profit Margin (%)
+PAT / Revenue from Operations
+ —
+ Revenue is nil; margin not
+calculable
+ 10. Return on Capital Employed
+(ROCE)
+EBIT / Capital Employed
+ —
+ Capital employed eroded by losses
+/ not calculable
+CAPTRIX — INDEPENDENT FINANCIAL AUDIT & STATUTORY ASSURANCE
+Page 3 of 6
+CONFIDENTIAL — STRICTLY FOR AUDIT COMMITTEE & QUALIFIED CA REVIEW
+
+
+=== PAGE 4 ===
+4. Statutory Assurance Matrix — CARO 2020 Compliance Annexure
+ANNEXURE 'A' TO THE INDEPENDENT STATUTORY AUDITOR'S REPORT
+(Referred to in paragraph 1 under 'Report on Other Legal and Regulatory Requirements' section of our report)
+To the best of our information and according to the explanations given to us and the books of account and records examined by us in the normal
+course of audit, we state that:
+CARO Clause & Ref
+Statutory Focus
+Specific Audit Procedure & Source Evidence
+Auditor Conclusion
+ CARO Clause 3(i)(a)
+Property, Plant & Equipment
+Records
+Fixed Asset Register verified across all physical asset items
+showing full quantitative details, location, capitalized cost, and
+Schedule II SLM depreciation roll-forward.
+COMPLIANT
+(Verified Orderly)
+ 
+CARO Clause 3(i)(b)
+Physical Verification of PPE
+Physical verification count sheets and rotational verification
+reports not uploaded; physical existence and condition unverified
+from source files.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(i)(c)
+Title Deeds of Immovable
+Property
+Title deeds and property registration certificates not uploaded in
+engagement documents; title deed custody unverified.
+REVIEW REQUIRED
+(Evidence Pending)
+ CARO Clause 3(i)(d)
+Revaluation of PPE /
+Intangibles
+3 asset records tracked in FAR with unique asset codes, capitalized
+costs, and Schedule II useful lives pursuant to Clause 3(i)(a).
+However, physical verification report under Clause 3(i)(b) is not in
+engagement files; physical inspection requires verification by
+statutory auditor.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(i)(e)
+Benami Property
+Proceedings
+Benami property statutory declarations not uploaded; pending
+formal management representation letter.
+REVIEW REQUIRED
+(Evidence Pending)
+ CARO Clause 3(ii)(a)
+Physical Verification of
+Inventory
+Physical inventory count sheets and quarterly lender
+hypothecation statements not provided in engagement files;
+physical verification unverified.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(ii)(b)
+Working Capital Limits > ₹5
+Cr
+Physical inventory count sheets and quarterly lender
+hypothecation statements not provided in engagement files;
+physical verification unverified.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(iii)
+Investments, Guarantees &
+Loans Granted
+Specific supporting evidence not provided for Clause 3(iii);
+compliance requires independent verification against external
+statutory records.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(iv)
+Compliance with Sections
+185 and 186
+Specific supporting evidence not provided for Clause 3(iv);
+compliance requires independent verification against external
+statutory records.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(vii)(a)
+Undisputed Statutory Dues
+Statutory payment challans and portal receipts (PF, ESI, GST, TDS,
+IT) not provided in engagement files; undisputed statutory arrears
+status unverified.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(vii)(b)
+Disputed Statutory Dues
+Statutory payment challans and portal receipts (PF, ESI, GST, TDS,
+IT) not provided in engagement files; undisputed statutory arrears
+status unverified.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(ix)(a)
+Default in Repayment of
+Borrowings
+Bank statements examined for regular debt servicing; lender
+confirmation statements and loan agreements pending
+independent auditor inspection to confirm absence of defaults.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(xi)
+Fraud Reporting u/s 143(12)
+/ SA 240
+Analytical review and Benford's Law distribution executed on
+processed samples. Pursuant to SA 240, statistical tests alone
+cannot establish the absence of fraud. Inspection of management
+representation letter, internal audit reports, and whistle-blower
+registry by the statutory auditor is mandatory.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(xvii)
+Cash Losses Incurred
+Statement of Profit & Loss scrutinized: The company has not
+incurred cash losses in the current financial year (Cash profit:
+₹0.00).
+COMPLIANT
+(Verified Orderly)
+ 
+CARO Clause 3(xviii)
+Resignation of Statutory
+Auditors
+Specific supporting evidence not provided for Clause 3(xviii);
+compliance requires independent verification against external
+statutory records.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(xix)
+Going Concern & Material
+Uncertainty
+Specific supporting evidence not provided for Clause 3(xix);
+compliance requires independent verification against external
+statutory records.
+REVIEW REQUIRED
+(Evidence Pending)
+ 
+CARO Clause 3(xx)
+Corporate Social
+Responsibility (CSR)
+Specific supporting evidence not provided for Clause 3(xx);
+compliance requires independent verification against external
+statutory records.
+REVIEW REQUIRED
+(Evidence Pending)
+ CAPTRIX — INDEPENDENT FINANCIAL AUDIT & STATUTORY ASSURANCE
+Page 4 of 6
+CONFIDENTIAL — STRICTLY FOR AUDIT COMMITTEE & QUALIFIED CA REVIEW
+
+
+=== PAGE 5 ===
+5. Tax Audit (Form 3CD), Subledger Reconciliations & Adjusting Entries (AJE)
+STATUTORY TAX AUDIT SCRUTINY PURSUANT TO SECTION 44AB OF THE INCOME TAX ACT, 1961
+5A. Tax Audit Form 3CD Clauses (Section 44AB)
+Form 3CD Clause
+Tax Audit Subject
+Audit Verification Procedure & Evidence
+Tax Audit Status
+ Form 3CD Clause 21(d)
+Section 40A(3) Cash
+Scrutiny
+Daybook cash vouchers examined against Rule 6DD limits; zero
+transactions exceeding ₹10,000 threshold (Nil Violations).
+CLEARED
+(Nil Violations)
+ Form 3CD Clause 22
+MSMED Act Section 43B(h)
+Creditors subledger aging schedule not supplied or contains nil
+payable records; MSME 45-day overdue status unverified.
+REVIEW REQUIRED
+(Evidence Pending)
+ Form 3CD Clause 26
+Section 43B Statutory
+Liabilities
+Post-balance sheet statutory liability payment challans not
+uploaded; discharge before Section 139(1) due date unverified.
+REVIEW REQUIRED
+(Evidence Pending)
+ Form 3CD Clause 34
+TDS / TCS Compliance
+Quarterly TDS statements (Form 26Q/27EQ) and TRACES
+statements not uploaded; TDS statement reconciliation pending.
+REVIEW REQUIRED
+(Evidence Pending)
+ 5B. MSMED Act Section 43B(h) Overdue Payables Scrutiny
+MSME & Trade Payables Parameter
+Value / Count
+Statutory Audit Observation & Tax Impact
+ Total Trade Payables (TB Control Account)
+₹38,750.00
+Control account ledger balance: MSME Dues ₹0.00 | Other
+Payables ₹38,750.00
+ Vendor Subledger Ageing Tracked Total
+₹0.00
+0 Tracked Invoices (including 0 MSME invoices totaling ₹0.00)
+ Control-to-Subledger Reconciliation
+₹38,750.00
+REVIEW REQUIRED: Variance of ₹38,750.00 vs subledger
+schedule; SA 505 external balance confirmations
+recommended.
+ Overdue MSME Invoices (>45 Days)
+0 Invoices
+Exceeds 45-day statutory payment window under Section 15 of
+MSMED Act
+ Section 43B(h) Disallowance Pool
+₹0.00
+Mandatory disallowance: Added back to taxable income in
+Form 3CD / ITR-6
+ Form 3CD Clause 22 Status
+REVIEW REQUIRED (Invoices
+Pending)
+Detailed invoice-by-invoice MSME schedule annexed to Tax
+Audit Report
+5C. Bank Reconciliation Statement (BRS / Passbook Scrutiny)
+Reconciliation Head
+ Amount (₹)
+ Verification Status & Statutory
+Observation
+ Balance as per General Ledger (Cashbook)
+ ₹12,500.00
+ Primary ledger balance verified against
+TB Account 100200
+ Add / Less: Valid Timing Differences (<90 Days)
+ ₹0.00
+ 0 Cheques in ordinary clearing cycle
+ Less: Stale Cheques Unpresented (>90 Days)
+ ₹18,400.00
+ 1 Cheques stale under NI Act Sec 138 /
+RBI Guidelines; requires reversal
+ Balance as per Bank Statement / Passbook
+ ₹0.00
+ Corroborated against external bank
+statement
+ Net Unreconciled Variance
+ ₹60,650.00
+ REVIEW REQUIRED
+(1 Stale Cheques / Unresolved)
+ Date
+Source
+Ref Number
+Particulars / Description
+Amount (₹)
+ Classification
+ 20-Mar-2023
+BANK_STATEMENT
+BANK-FEE-0320
+Bank service fee
+ ₹250.00
+ DIRECT_DEBIT_BA
+ NK_
+ 25-Mar-2023
+BANK_STATEMENT
+RCPT-055
+Customer receipt
+₹30,000.00
+ DIRECT_CREDIT_I
+ NTE
+ 5D. Fixed Asset Register (FAR) & Dual Depreciation Analysis
+Asset Code & Name
+Category
+In-Service
+Cost (₹)
+ Life / Method
+Booked (₹)
+Sch II (₹)
+Variance
+ (₹)
+ FA-001
+Laptop
+PLANT &
+MACHINERY
+01-Apr-2024
+₹0.00
+ 3.00 Yrs
+SLM
+ ₹0.00
+ ₹0.00
+ ₹0.00
+ 
+FA-002
+Office Furniture
+PLANT &
+MACHINERY
+01-Apr-2024
+₹0.00
+ 10.00 Yrs
+SLM
+ ₹0.00
+ ₹0.00
+ ₹0.00
+ 
+FA-003
+Printer
+PLANT &
+MACHINERY
+01-Apr-2024
+₹0.00
+ 3.00 Yrs
+SLM
+ ₹0.00
+ ₹0.00
+ ₹0.00
+ 
+TOTAL (3 ASSETS)
+₹0.00
+ ₹0.00
+ ₹0.00
+ ₹0.00
+ 5E. Audit Exceptions & Proposed Adjusting Journal Entries (AJE)
+AJE Ref
+Debit Account
+Credit Account
+Amount (₹)
+ Accounting Basis
+Posting Status
+ AJE-NIL
+N/A (Books in Balance)
+N/A (Books in Balance)
+ ₹0.00
+ All primary books reconciled
+with zero unadjusted
+material exceptions.
+CLEARED
+(Zero Variances)
+CAPTRIX — INDEPENDENT FINANCIAL AUDIT & STATUTORY ASSURANCE
+Page 5 of 6
+CONFIDENTIAL — STRICTLY FOR AUDIT COMMITTEE & QUALIFIED CA REVIEW
+
+
+=== PAGE 6 ===
+6. Independent Statutory Auditor's Report (SA 700 / SA 705)
+INDEPENDENT STATUTORY AUDITOR'S REPORT
+To the Members of Audit Client Entity (444-E1F8)
+Report on the Audit of the Financial Statements
+DRAFT AUDIT OPINION / PENDING INDEPENDENT CA SIGN-OFF:
+This document is an automated draft audit file compiled by Captrix Engine for substantive review and examination by the Engagement Partner for
+Audit Client Entity (444-E1F8) for the financial period ended March 31, 2025. In strict compliance with Standards on Auditing (SA 700 / SA
+705) and ICAI statutory directives, no statutory audit opinion ('True and Fair View') is expressed herein prior to completion of mandatory
+partner review, physical verification of assets, and generation of a verified ICAI UDIN on udin.icai.org.
+Basis for Draft Workpaper Compilation: Substantive audit procedures, cross-document reconciliation, and Schedule III mathematical checks
+have been executed against available digital books of account. Physical asset verification, external debtor/creditor balance confirmations, and
+portal reconciliations remain subject to independent verification by the Statutory Auditor.
+Draft compliance review — not an auditor's representation: This automated workpaper does not state that the auditor has obtained all
+information, that statutory books or accounting standards have been independently verified, or that CARO requirements have been satisfied.
+Refer to the clause-level evidence matrix for items marked REVIEW REQUIRED or EVIDENCE MISSING. A qualified practicing CA must perform and
+document the applicable procedures before any statutory report is issued.
+7. Statutory Auditor Official Sign-Off & Physical Signature
+For & On Behalf of:
+[Statutory Audit Firm — To be designated at final sign-off]
+Chartered Accountants • Firm Registration No (FRN): [Firm Registration No. Pending Sign-Off]
+Manual Signature: ____________________________________________
+(Statutory Auditor must sign by hand upon completion of independent review)
+CA. [Pending Final CA Partner Sign-Off]
+Senior Audit Partner
+ICAI Membership No: [Pending Final Partner Authorization]
+UDIN: [Pending Generation on Authorized Partner Sign-Off via udin.icai.org]
+Signing Date: [Pending Sign-Off Date]
+Place of Signing: [Pending Sign-Off Location]
+Audit File Status: DRAFT WORKPAPER — PENDING INDEPENDENT CA REVIEW
+[OFFICIAL CA SEAL / STAMP
+Required at Authorized Sign-off]
+STATUTORY AUDITOR MANDATORY DISCLAIMER: This document is an automated draft audit and accounting scrutiny report synthesized by Captrix from client
+ledgers, transactional registers, and verified statutory rule engines. STATUS: DRAFT — PENDING INDEPENDENT PROFESSIONAL REVIEW AND OFFICIAL CA
+AUTHORIZATION. This document DOES NOT constitute a final statutory audit opinion under Section 143 of the Companies Act, 2013 or an audit report under
+Section 44AB of the Income-tax Act, 1961. In compliance with ICAI regulations, final statutory opinions require independent examination, professional skepticism,
+physical verification, and official signature by a duly authorized practicing Chartered Accountant. Captrix does not simulate official UDIN generation, impersonate
+a CA, or perform unauthorized portal operations.
+CAPTRIX — INDEPENDENT FINANCIAL AUDIT & STATUTORY ASSURANCE
+Page 6 of 6
+CONFIDENTIAL — STRICTLY FOR AUDIT COMMITTEE & QUALIFIED CA REVIEW
+
+

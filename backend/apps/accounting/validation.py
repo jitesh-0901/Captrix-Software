@@ -143,6 +143,8 @@ class FinancialDataValidationService:
         """
         exact_map = defaultdict(list)
         near_candidates = []
+        if engagement:
+            ExceptionItem.objects.filter(engagement=engagement, rule_code="RULE_DUPLICATE_TXN").delete()
 
         for txn in transactions:
             amt = txn.debit_amount if txn.debit_amount > 0 else txn.credit_amount
@@ -269,9 +271,24 @@ class FinancialDataValidationService:
         Identifies unmapped accounts and suspense/holding accounts.
         """
         unmapped = []
+        if engagement:
+            ExceptionItem.objects.filter(engagement=engagement, rule_code__in=["RULE_UNMAPPED_COA", "RULE_SUSPENSE_ACCOUNT"]).delete()
+
         ledgers = LedgerAccount.objects.filter(company=company).select_related('coa')
 
         for l in ledgers:
+            if not l.coa:
+                from apps.accounting.services import classify_schedule_iii, get_account_type_for_schedule_group
+                grp = classify_schedule_iii(l.name)
+                act_type = get_account_type_for_schedule_group(grp)
+                coa, _ = ChartOfAccounts.objects.get_or_create(
+                    company=company,
+                    account_code=l.code or f"COA-{l.id}",
+                    defaults={'account_name': l.name, 'account_type': act_type, 'schedule_iii_group': grp}
+                )
+                l.coa = coa
+                l.save(update_fields=['coa'])
+
             is_suspense = False
             sch_group = l.coa.schedule_iii_group if l.coa else ScheduleIIIGroup.UNCLASSIFIED
             name_lower = l.name.lower()
@@ -281,7 +298,7 @@ class FinancialDataValidationService:
                 l.is_suspense = True
                 l.save(update_fields=['is_suspense'])
 
-            if not l.coa or sch_group == ScheduleIIIGroup.UNCLASSIFIED or is_suspense:
+            if sch_group == ScheduleIIIGroup.UNCLASSIFIED or is_suspense:
                 unmapped.append({
                     'ledger_id': l.id,
                     'ledger_name': l.name,
@@ -372,6 +389,8 @@ class FinancialDataValidationService:
         Liability or Equity account with Debit closing balance).
         """
         abnormal = []
+        if engagement:
+            ExceptionItem.objects.filter(engagement=engagement, rule_code="RULE_ABNORMAL_BALANCE").delete()
         ledgers = LedgerAccount.objects.filter(company=engagement.company).select_related('coa')
 
         for l in ledgers:

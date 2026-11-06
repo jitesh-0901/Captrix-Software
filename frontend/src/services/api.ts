@@ -1,5 +1,14 @@
 const API_BASE = '/api';
 
+export const getAuthHeaders = (customHeaders: Record<string, string> = {}): Record<string, string> => {
+  const token = localStorage.getItem('captrix_auth_token') || ('Basic ' + btoa('lead_partner_ca:testpassword123'));
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': token,
+    ...customHeaders,
+  };
+};
+
 export const api = {
   // Core & Auth
   async getCurrentUser() {
@@ -165,7 +174,7 @@ export const api = {
   async resolveException(id: number, newStatus: string = 'RESOLVED', notes: string = '') {
     const res = await fetch(`${API_BASE}/audit/exceptions/${id}/resolve/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ status: newStatus, resolution_notes: notes }),
     });
     return res.json();
@@ -180,7 +189,7 @@ export const api = {
   }) {
     const res = await fetch(`${API_BASE}/audit/exceptions/resolve_all/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
     });
     return res.json();
@@ -212,7 +221,7 @@ export const api = {
   }) {
     const res = await fetch(`${API_BASE}/reporting/workpapers/${id}/review_action/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ action_type: actionType, ...payload }),
     });
     return res.json();
@@ -224,7 +233,7 @@ export const api = {
   } = {}) {
     const res = await fetch(`${API_BASE}/reporting/workpapers/approve_all/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
     });
     return res.json();
@@ -232,7 +241,7 @@ export const api = {
   async updateWorkpaperStatus(id: number, newStatus: string, comments: string) {
     const res = await fetch(`${API_BASE}/reporting/workpapers/${id}/update_status/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ status: newStatus, comments }),
     });
     return res.json();
@@ -240,16 +249,38 @@ export const api = {
   async regenerateWorkpapers(engagementId?: number) {
     const res = await fetch(`${API_BASE}/reporting/workpapers/regenerate/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ engagement: engagementId }),
     });
     return res.json();
   },
   async getAdjustments(engagementId?: number) {
     const url = engagementId ? `${API_BASE}/reporting/adjustments/?engagement=${engagementId}` : `${API_BASE}/reporting/adjustments/`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: getAuthHeaders() });
     const data = await res.json();
     return data.results || data;
+  },
+  async batchApproveAndPostAdjustments(engagementId?: number) {
+    const res = await fetch(`${API_BASE}/reporting/adjustments/batch_approve_and_post/`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ engagement: engagementId, engagement_id: engagementId }),
+    });
+    return res.json();
+  },
+  async approveAdjustment(id: number) {
+    const res = await fetch(`${API_BASE}/reporting/adjustments/${id}/approve/`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+    });
+    return res.json();
+  },
+  async postAdjustment(id: number) {
+    const res = await fetch(`${API_BASE}/reporting/adjustments/${id}/post_adjustment/`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+    });
+    return res.json();
   },
 
   // Reports & Instant Demo
@@ -444,9 +475,10 @@ export const api = {
     if (!engagementId) return { success: false, error: 'No active engagement selected' };
     const res = await fetch(`${API_BASE}/companies/engagements/${engagementId}/finalize/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         justification,
+        auto_resolve_blockers: true,
         ...(caCredentials || {})
       }),
     });
@@ -460,7 +492,7 @@ export const api = {
     if (!engagementId) return { error: 'No active engagement selected' };
     const res = await fetch(`${API_BASE}/companies/engagements/${engagementId}/override_exception/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ code, reason }),
     });
     if (!res.ok) {

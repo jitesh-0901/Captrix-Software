@@ -90,7 +90,7 @@ class FixedAssetAuditEngine:
                 category = cat_raw
             
             raw_cost = get_field(rec, [
-                'cost', 'Capitalized_Cost_INR', 'original_cost', 'Original Cost',
+                'cost', 'Cost_INR', 'cost_inr', 'Capitalized_Cost_INR', 'original_cost', 'Original Cost',
                 'Gross Block (INR)', 'Gross Block', 'Cost', 'Purchase Cost', 'Purchase_Cost',
                 'Purchase Price', 'Gross Value', 'Gross_Value', 'Acquisition Cost',
                 'Acquisition_Cost', 'Cost of Asset', 'Total Cost', 'Asset Cost'
@@ -114,7 +114,7 @@ class FixedAssetAuditEngine:
 
             location = get_field(rec, ['location', 'Location', 'Site', 'Plant'], 'Main Facility')
 
-            raw_acq = get_field(rec, ['acquisition_date', 'Acquisition_Date', 'Purchase Date', 'Date of Purchase', 'Date of Capitalization', 'Capitalization Date'])
+            raw_acq = get_field(rec, ['acquisition_date', 'Acquisition_Date', 'In_Service_Date', 'in_service_date', 'Purchase Date', 'Date of Purchase', 'Date of Capitalization', 'Capitalization Date', 'Date', 'date'])
             if raw_acq:
                 try:
                     date_part = raw_acq.split()[0]
@@ -127,7 +127,7 @@ class FixedAssetAuditEngine:
             else:
                 acq_date = fy_start
 
-            raw_put = get_field(rec, ['put_to_use_date', 'Put_To_Use_Date', 'Put to Use Date', 'Date of Put to Use', 'Capitalization Date'])
+            raw_put = get_field(rec, ['put_to_use_date', 'Put_To_Use_Date', 'Put to Use Date', 'Date of Put to Use', 'In_Service_Date', 'in_service_date', 'Capitalization Date', 'Date', 'date'])
             if raw_put:
                 try:
                     date_part = raw_put.split()[0]
@@ -188,7 +188,7 @@ class FixedAssetAuditEngine:
 
             # Parse residual value / percentage
             raw_res_pct = get_field(rec, ['residual_pct', 'Residual_Pct', 'Residual %', 'Residual Percentage', 'Scrap %', 'Scrap_Pct'])
-            raw_res_val = get_field(rec, ['residual_value', 'Residual_Value', 'Residual Value', 'Scrap Value', 'Scrap_Value', 'Salvage Value'])
+            raw_res_val = get_field(rec, ['residual_value', 'Residual_Value', 'Residual_Value_INR', 'residual_value_inr', 'Residual Value', 'Scrap Value', 'Scrap_Value', 'Salvage Value'])
             if raw_res_pct:
                 try:
                     residual_pct = Decimal(str(raw_res_pct).replace('%', '').strip())

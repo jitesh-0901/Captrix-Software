@@ -2,6 +2,7 @@ from decimal import Decimal
 from typing import List, Dict, Any
 from apps.companies.models import Engagement, EntityType
 from apps.audit.models import StatutoryClauseAudit
+from apps.accounting.models import Transaction
 
 class StatutoryFormMatrixEngine:
     """
@@ -207,6 +208,13 @@ class StatutoryFormMatrixEngine:
                         pl_calc = fs_calc.get('profit_and_loss', {})
                         pat_val = Decimal(str(pl_calc.get('profit_after_tax', '0.00')))
                         depn_val = Decimal(str(pl_calc.get('expenses', {}).get('depreciation_and_amortization', pl_calc.get('expenses', {}).get('depreciation_amortization', '0.00'))))
+                    elif has_txns:
+                        # Fallback to transactions P&L calculation
+                        all_txns = Transaction.objects.filter(engagement=engagement)
+                        inc = sum((t.credit_amount for t in all_txns if t.ledger_account and ((t.ledger_account.coa and t.ledger_account.coa.account_type == 'REVENUE') or 'sales' in t.ledger_account.name.lower() or 'revenue' in t.ledger_account.name.lower())), Decimal('0.00'))
+                        exp = sum((t.debit_amount for t in all_txns if t.ledger_account and ((t.ledger_account.coa and t.ledger_account.coa.account_type == 'EXPENSE') or 'expense' in t.ledger_account.name.lower() or 'rent' in t.ledger_account.name.lower() or 'salary' in t.ledger_account.name.lower() or 'utilities' in t.ledger_account.name.lower() or 'travel' in t.ledger_account.name.lower() or 'professional' in t.ledger_account.name.lower())), Decimal('0.00'))
+                        pat_val = inc - exp
+                        depn_val = sum((t.debit_amount for t in all_txns if t.ledger_account and 'depreciation' in t.ledger_account.name.lower()), Decimal('0.00'))
 
                     cash_loss_or_profit = pat_val + depn_val
                     if cash_loss_or_profit < Decimal('0.00'):

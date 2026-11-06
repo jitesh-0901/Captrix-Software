@@ -443,13 +443,18 @@ class AutomationOrchestratorService:
                     f.seek(0)
                     clean_name = sanitize_filename(f.name)
 
-                    # Check duplicate
-                    is_dup = Document.objects.filter(file_hash=f_hash).exists()
-                    if is_dup:
-                        cls._log_stage(run, 'UPLOAD_RECEIVED', f"Warning: File '{clean_name}' exact SHA-256 duplicate detected.", level='WARNING')
+                    # Check duplicate and replace prior versions to avoid cascading duplicate vouchers
+                    target_eng = run.engagement or cls._get_or_create_placeholder_engagement(run)
+                    prior_docs = Document.objects.filter(engagement=target_eng, file_hash=f_hash)
+                    if prior_docs.exists():
+                        cls._log_stage(run, 'UPLOAD_RECEIVED', f"File '{clean_name}' re-upload detected. Superseding {prior_docs.count()} prior document(s) for this engagement.", level='INFO')
+                        for pd in prior_docs:
+                            from apps.accounting.models import Transaction
+                            Transaction.objects.filter(document=pd).delete()
+                            pd.delete()
 
                     doc = Document.objects.create(
-                        engagement=run.engagement or cls._get_or_create_placeholder_engagement(run),
+                        engagement=target_eng,
                         original_filename=clean_name,
                         file=f,
                         file_hash=f_hash,
@@ -1111,6 +1116,10 @@ class AutomationOrchestratorService:
                     if last_bal is not None:
                         actual_statement_bal = last_bal
                         break
+            if actual_statement_bal is None and bank_items:
+                tot_dep = sum((Decimal(str(b.get('amount', 0))) for b in bank_items if b.get('type') == 'DEPOSIT'), Decimal('0.00'))
+                tot_wdr = sum((Decimal(str(b.get('amount', 0))) for b in bank_items if b.get('type') == 'WITHDRAWAL'), Decimal('0.00'))
+                actual_statement_bal = tot_dep - tot_wdr
 
             rec_run = BankReconciliationEngine.execute_reconciliation(
                 engagement=engagement,
@@ -1121,6 +1130,21 @@ class AutomationOrchestratorService:
                 actual_statement_balance=actual_statement_bal if actual_statement_bal is not None else Decimal('0.00')
             )
             recon_notes.append(f"BRS: {rec_run.matched_count} matched, {rec_run.unmatched_count} timing diffs (Status: {rec_run.status})")
+
+        # 2. GST ITC Reconciliation (Purchase Register vs GSTR-2B)
+        purchase_doc = next((d for d in context['documents'] if d.document_type == DocumentType.PURCHASE_REGISTER), None)
+        gstr2b_doc = next((d for d in context['documents'] if d.document_type == DocumentType.GSTR_2B), None)
+        if purchase_doc and gstr2b_doc:
+            p_rows = [r.normalized_data or r.raw_data for r in purchase_doc.extracted_records.all()]
+            g_rows = [r.normalized_data or r.raw_data for r in gstr2b_doc.extracted_records.all()]
+            from apps.reconciliation.services import GstItcReconciliationEngine
+            gst_run = GstItcReconciliationEngine.execute_reconciliation(
+                engagement=engagement,
+                as_of_date=engagement.financial_year.end_date,
+                purchase_items=p_rows,
+                gstr2b_items=g_rows
+            )
+            recon_notes.append(f"GST ITC: {gst_run.matched_count} matched (Status: {gst_run.status})")
 
         # 2. Fixed Assets & Dual Depreciation
         far_doc = next((d for d in context['documents'] if d.document_type == DocumentType.FIXED_ASSET_REGISTER), None)

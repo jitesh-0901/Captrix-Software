@@ -174,7 +174,7 @@ class ConsolidatedAuditReportBuilder:
             f"UNBALANCED (Variance: ₹{abs(tb.difference_amount):,.2f})" if tb else "NOT_COMPUTED"
         )
 
-        brs = ReconciliationRun.objects.filter(engagement=engagement, recon_type='BANK').first()
+        brs = ReconciliationRun.objects.filter(engagement=engagement, recon_type='BANK').order_by('-id').first()
         brs_status = brs.status if brs else "NOT_PERFORMED"
         brs_unmatched = brs.unmatched_count if brs else 0
         brs_unrec_diff = abs(Decimal(str(brs.unreconciled_difference or '0.00'))) if brs else Decimal('0.00')
@@ -528,6 +528,7 @@ class ConsolidatedAuditReportBuilder:
             'ratios': ratios_list,
             'financial_ratios_summary': ratios_summary,
             'ratios_summary': ratios_summary,
+            'fin_statements': fin_statements,
             'financial_statements': fin_statements,
             'comparative_statements': {
                 'unadjusted': {
@@ -609,13 +610,20 @@ class ConsolidatedAuditReportBuilder:
         recon_runs = ReconciliationRun.objects.filter(engagement=engagement)
         recon_list = []
         for r in recon_runs:
+            s_data = r.summary_data or {}
             recon_list.append({
                 'recon_type': r.recon_type,
                 'recon_title': r.get_recon_type_display(),
                 'status': r.status,
+                'source_a_name': s_data.get('source_a_name', 'General Ledger / Books'),
+                'source_a_balance': str(r.balance_per_books if r.balance_per_books is not None else s_data.get('starting_cashbook_balance', '0.00')),
+                'source_b_name': s_data.get('source_b_name', 'Subledger / Statement Return'),
+                'source_b_balance': str(r.balance_per_statement if r.balance_per_statement is not None else s_data.get('actual_statement_balance', '0.00')),
                 'matched_count': r.matched_count,
                 'unmatched_count': r.unmatched_count,
+                'total_items': r.total_source_items or (r.matched_count + r.unmatched_count),
                 'unreconciled_variance': str(r.unreconciled_difference),
+                'root_cause': s_data.get('root_cause', s_data.get('message', '')),
                 'executed_at': r.created_at.isoformat()
             })
 
@@ -669,19 +677,26 @@ class ConsolidatedAuditReportBuilder:
         overdue_43bh = pay_aging.filter(is_overdue_43bh=True)
         msme_total_outstanding = msme_items.aggregate(s=Sum('outstanding_amount'))['s'] or Decimal('0.00')
 
-        tb_msme_ledgers = LedgerAccount.objects.filter(
-            company=engagement.company
-        ).filter(
-            Q(code='200200') | Q(name__icontains='msme') | Q(name__icontains='micro') | Q(name__icontains='small enterprise')
-        )
-        tb_msme_amt = sum((l.closing_balance for l in tb_msme_ledgers), Decimal('0.00'))
-        tb_other_pay_ledgers = LedgerAccount.objects.filter(
-            company=engagement.company,
-            coa__schedule_iii_group='TRADE_PAYABLES'
-        ).exclude(id__in=tb_msme_ledgers.values_list('id', flat=True))
-        tb_other_pay_amt = sum((l.closing_balance for l in tb_other_pay_ledgers), Decimal('0.00'))
+        tb_msme_amt = Decimal('0.00')
+        if tb and tb.accounts_snapshot:
+            for acc in tb.accounts_snapshot:
+                code_str = str(acc.get('account_code') or '')
+                name_str = str(acc.get('account_name') or '').lower()
+                if code_str == '200200' or 'msme' in name_str or 'micro' in name_str:
+                    cr_v = Decimal(str(acc.get('credit') or '0.00'))
+                    dr_v = Decimal(str(acc.get('debit') or '0.00'))
+                    tb_msme_amt += abs(cr_v - dr_v)
         if tb_msme_amt == Decimal('0.00') and msme_total_outstanding > Decimal('0.00'):
             tb_msme_amt = msme_total_outstanding
+
+        tb_other_pay_fallback = sum(
+            (l.closing_balance for l in LedgerAccount.objects.filter(
+                company=engagement.company, coa__schedule_iii_group='TRADE_PAYABLES'
+            ).exclude(code='200200').exclude(name__icontains='msme')),
+            Decimal('0.00')
+        )
+        tb_tot_payables = payables_total if payables_total > Decimal('0.00') else (tb_msme_amt + tb_other_pay_fallback)
+        tb_other_pay_amt = max(Decimal('0.00'), tb_tot_payables - tb_msme_amt)
 
         ppe_ledgers = LedgerAccount.objects.filter(
             company=engagement.company,
@@ -749,6 +764,9 @@ class ConsolidatedAuditReportBuilder:
         subledger_tot_payables = pay_aging.aggregate(s=Sum('outstanding_amount'))['s'] or Decimal('0.00')
         payables_ctrl_var = abs(tb_tot_payables - subledger_tot_payables)
 
+        subledger_tot_receivables = rec_aging.aggregate(s=Sum('outstanding_amount'))['s'] or Decimal('0.00')
+        receivables_ctrl_var = abs(receivables_total - subledger_tot_receivables)
+
         section_g = {
             'section_code': 'SEC-G',
             'title': 'Account Schedules & Financial Analysis',
@@ -757,7 +775,9 @@ class ConsolidatedAuditReportBuilder:
             'has_fixed_assets': has_fa_data,
             'has_payables_msme': has_pay_data,
             'has_receivables': has_rec_data,
-            'receivables_aging_total': str(rec_aging.aggregate(s=Sum('outstanding_amount'))['s'] or Decimal('0.00')),
+            'tb_trade_receivables': str(receivables_total),
+            'receivables_aging_total': str(subledger_tot_receivables),
+            'subledger_to_control_receivables_variance': str(receivables_ctrl_var),
             'receivables_count': rec_aging.count(),
             'payables_aging_total': str(pay_aging.aggregate(s=Sum('outstanding_amount'))['s'] or Decimal('0.00')),
             'payables_count': pay_aging.count(),

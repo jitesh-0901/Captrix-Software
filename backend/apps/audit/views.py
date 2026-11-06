@@ -119,6 +119,8 @@ class ExceptionItemViewSet(viewsets.ModelViewSet):
             'RULE_TB_UNBALANCED': "Audited journal voucher postings and reconciled debit-credit imbalance. Trial balance verified in balance.",
             'RULE_CASH_EXPENSE_40A3': "Verified supporting cash vouchers; confirmed payment falls within permissible Rule 6DD exemptions of the Income Tax Act.",
             'RULE_RELATED_PARTY_32A': "Inspected Board resolution and contract documentation per Section 188 of Companies Act, 2013. Confirmed transactions at arm's length.",
+            'RULE_CUTOFF_HIGH_VALUE': "Vouching performed against goods receipt notes (GRN) and delivery challans per SA 500. Substantive cut-off testing confirms transaction belongs to current financial period.",
+            'RULE_DEPRECIATION_VARIANCE': "Dual depreciation recalculated in accordance with Schedule II useful lives. Adjusted via proposed adjusting journal entry AJE-01.",
         }
 
         if not notes or not notes.strip():
@@ -181,6 +183,8 @@ class ExceptionItemViewSet(viewsets.ModelViewSet):
             'RULE_TB_UNBALANCED': "Audited journal voucher postings and reconciled debit-credit imbalance. Trial balance verified in balance.",
             'RULE_CASH_EXPENSE_40A3': "Verified supporting cash vouchers; confirmed payment falls within permissible Rule 6DD exemptions of the Income Tax Act.",
             'RULE_RELATED_PARTY_32A': "Inspected Board resolution and contract documentation per Section 188 of Companies Act, 2013. Confirmed transactions at arm's length.",
+            'RULE_CUTOFF_HIGH_VALUE': "Vouching performed against goods receipt notes (GRN) and delivery challans per SA 500. Substantive cut-off testing confirms transaction belongs to current financial period.",
+            'RULE_DEPRECIATION_VARIANCE': "Dual depreciation recalculated in accordance with Schedule II useful lives. Adjusted via proposed adjusting journal entry AJE-01.",
         }
 
         count = 0
@@ -431,38 +435,13 @@ class StatutoryClauseAuditViewSet(viewsets.ModelViewSet):
 
         audits = StatutoryFormMatrixEngine.initialize_and_audit_clauses(engagement)
 
-        # 100% Autonomous AI Audit: Auto-draft and approve all SA 230 workpapers
+        # Synthesize evidence-linked SA 230 workpapers based on current audit evidence
         from apps.reporting.services import WorkpaperDraftingService
-        from apps.reporting.models import WorkpaperStatus, AdjustmentStatus
-        from django.utils import timezone
-        
         wps = WorkpaperDraftingService.draft_workpapers(engagement)
-        for wp in wps:
-            wp.status = WorkpaperStatus.APPROVED
-            wp.evidence_verified = True
-            wp.approved_at = timezone.now()
-            wp.review_comments = "Autonomously audited, corroborated against general ledger and statutory schedules by Captrix AI Engine."
-            wp.save(update_fields=['status', 'evidence_verified', 'approved_at', 'review_comments'])
-
-        # Autonomous AI Adjusting Entry Posting & Ledger Alignment
-        from apps.audit.models import ExceptionItem, ExceptionStatus
-        for aje in engagement.adjustments.all():
-            aje.status = AdjustmentStatus.POSTED
-            aje.is_posted = True
-            aje.posted_at = timezone.now()
-            aje.save(update_fields=['status', 'is_posted', 'posted_at'])
-            linked_excs = ExceptionItem.objects.filter(
-                engagement=engagement,
-                rule_code__in=["RULE_DEPRECIATION_VARIANCE", "RULE_ROLLFORWARD_MISMATCH"]
-            )
-            for exc in linked_excs:
-                exc.status = ExceptionStatus.AJE_POSTED
-                exc.resolution_notes = f"AJE {aje.adjustment_number} posted autonomously to general ledger. Balanced double-entry at ₹{aje.total_debit:,.2f}."
-                exc.save(update_fields=['status', 'resolution_notes'])
 
         serializer = self.get_serializer(audits, many=True)
         return Response({
-            'message': f"100% Autonomous AI Audit Completed: Initialized {len(audits)} statutory clauses and approved {len(wps)} SA 230 working papers.",
+            'message': f"Initialized {len(audits)} statutory clauses and drafted {len(wps)} evidence-linked SA 230 working papers awaiting human reviewer sign-off.",
             'clauses': serializer.data,
             'workpapers_count': len(wps)
         })

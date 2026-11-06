@@ -110,7 +110,7 @@ class ReportIntegrityGateService:
         # -------------------------------------------------------------
         # GATE 3: Bank Reconciliation Consistency
         # -------------------------------------------------------------
-        brs = ReconciliationRun.objects.filter(engagement=engagement, recon_type='BANK').first()
+        brs = ReconciliationRun.objects.filter(engagement=engagement, recon_type='BANK').order_by('-id').first()
         brs_unresolved_count = 0
         brs_unreconciled_diff = Decimal('0.00')
         brs_status = brs.status if brs else 'NOT_PERFORMED'
